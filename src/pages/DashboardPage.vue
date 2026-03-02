@@ -3,6 +3,13 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { apiRequest, clearToken } from "../services/api";
 
+function localDateString(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 const router = useRouter();
 const profile = ref(null);
 const loading = ref(true);
@@ -12,7 +19,7 @@ const saving = ref(false);
 const plan = ref(null);
 const forecast = ref(null);
 const presets = ref({ foods: [], exercises: [] });
-const todayDate = new Date().toISOString().slice(0, 10);
+const todayDate = localDateString();
 const selectedDate = ref(todayDate);
 const calendarDays = ref([]);
 const streakDays = ref(0);
@@ -37,7 +44,7 @@ const planForm = ref({
   exercise_duration: 40,
   exercise_types: ["run"],
   expected_weeks: 12,
-  start_date: new Date().toISOString().slice(0, 10)
+  start_date: todayDate
 });
 const activityLevelOptions = [
   { key: "sedentary", label: "久坐", factor: 1.2, desc: "办公族，极少运动" },
@@ -123,7 +130,7 @@ const canActivatePlan = computed(
     Number(planForm.value.height_cm) >= 120
 );
 const monthLabel = computed(() => {
-  const base = selectedDate.value || new Date().toISOString().slice(0, 10);
+  const base = selectedDate.value || todayDate;
   const d = new Date(`${base}T00:00:00`);
   if (Number.isNaN(d.getTime())) {
     return base.slice(0, 7);
@@ -418,6 +425,7 @@ async function saveDailyLog() {
     });
     successText.value = "当日记录已保存";
     await loadCalendar();
+    await loadDailyLog();
     await loadForecast();
   } catch (error) {
     errorText.value = error.message;
@@ -545,13 +553,15 @@ onMounted(async () => {
 
 <template>
   <main class="container">
-    <section class="card">
+    <section class="dashboard-header">
       <h1 class="title">工作台</h1>
-      <p class="muted">账号：{{ profile?.account_id }}，当前已进入严格MVP功能闭环。</p>
-      <button class="secondary" type="button" @click="logout">退出登录</button>
-      <p v-if="errorText" class="error">{{ errorText }}</p>
-      <p v-if="successText" class="success">{{ successText }}</p>
+      <div class="header-tools">
+        <p class="muted header-account">账号：{{ profile?.account_id }}</p>
+        <button class="secondary header-logout-btn" type="button" @click="logout">退出登录</button>
+      </div>
     </section>
+    <p v-if="errorText" class="error header-feedback">{{ errorText }}</p>
+    <p v-if="successText" class="success header-feedback">{{ successText }}</p>
 
     <section v-if="!plan" class="wizard-card">
       <div class="wizard-header">
@@ -986,6 +996,40 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.dashboard-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dashboard-header .title {
+  margin: 0;
+}
+
+.header-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.header-account {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.header-logout-btn {
+  width: auto;
+  padding: 7px 12px;
+  border-radius: 8px;
+}
+
+.header-feedback {
+  margin: 0 0 10px;
+}
+
 .wizard-card {
   background: #ffffff;
   border-radius: 18px;
@@ -1799,6 +1843,15 @@ onMounted(async () => {
 }
 
 @media (max-width: 900px) {
+  .dashboard-header {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .header-tools {
+    width: 100%;
+  }
+
   .wizard-grid-two,
   .wizard-grid-three,
   .activity-grid,

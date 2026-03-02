@@ -7,7 +7,7 @@ function monthRange(year, month) {
   const first = new Date(Date.UTC(year, month - 1, 1));
   const last = new Date(Date.UTC(year, month, 0));
   const today = new Date();
-  const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const todayUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
   const cappedLast = last.getTime() > todayUtc.getTime() ? todayUtc : last;
   if (first.getTime() > cappedLast.getTime()) {
     return {
@@ -23,11 +23,22 @@ function monthRange(year, month) {
   };
 }
 
+function toDateKey(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    return value.slice(0, 10);
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const raw = String(value);
+  const matched = raw.match(/\d{4}-\d{2}-\d{2}/);
+  return matched ? matched[0] : raw.slice(0, 10);
+}
+
 function computeCurrentStreak(dayRows) {
   let streak = 0;
-  const sorted = [...dayRows].sort((a, b) =>
-    String(a.log_date).localeCompare(String(b.log_date))
-  );
+  const sorted = [...dayRows].sort((a, b) => toDateKey(a.log_date).localeCompare(toDateKey(b.log_date)));
   for (let i = sorted.length - 1; i >= 0; i -= 1) {
     if (sorted[i].status === "green") {
       streak += 1;
@@ -71,7 +82,7 @@ export async function handler(event) {
     const statusByDate = {};
     const deficitByDate = {};
     for (const row of monthLogs.rows) {
-      const dateKey = String(row.log_date).slice(0, 10);
+      const dateKey = toDateKey(row.log_date);
       statusByDate[dateKey] = row.status;
       deficitByDate[dateKey] = Number(row.deficit ?? 0);
     }
