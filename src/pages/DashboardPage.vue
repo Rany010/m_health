@@ -13,6 +13,7 @@ function localDateString(date = new Date()) {
 const router = useRouter();
 const profile = ref(null);
 const loading = ref(true);
+const initializing = ref(true);
 const errorText = ref("");
 const successText = ref("");
 const saving = ref(false);
@@ -511,13 +512,23 @@ watch(
 );
 
 onMounted(async () => {
-  await loadProfile();
-  await loadPresets();
-  await loadActivePlan();
-  if (plan.value) {
-    await loadCalendar();
-    await loadForecast();
-    await loadDailyLog();
+  initializing.value = true;
+  try {
+    await loadProfile();
+    if (!profile.value) {
+      return;
+    }
+    await loadPresets();
+    await loadActivePlan();
+    if (plan.value) {
+      await loadCalendar();
+      await loadForecast();
+      await loadDailyLog();
+    }
+  } catch (error) {
+    errorText.value = error?.message || "初始化失败，请稍后重试";
+  } finally {
+    initializing.value = false;
   }
 });
 </script>
@@ -534,7 +545,11 @@ onMounted(async () => {
     <p v-if="errorText" class="error header-feedback">{{ errorText }}</p>
     <p v-if="successText" class="success header-feedback">{{ successText }}</p>
 
-    <section v-if="!plan" class="wizard-card">
+    <section v-if="initializing" class="loading-card">
+      <p class="muted">正在加载数据...</p>
+    </section>
+
+    <section v-else-if="!plan" class="wizard-card">
       <div class="wizard-header">
         <h2>定制你的减脂蓝图</h2>
         <p>科学计算 BMR 与 TDEE，生成可执行的周期计划。</p>
@@ -769,35 +784,35 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section v-if="plan" class="calendar-top-metrics">
+    <section v-if="!initializing && plan" class="calendar-top-metrics">
       <article class="metric-card">
-        <p class="metric-label">Weight Progress</p>
+        <p class="metric-label">体重进度</p>
         <div class="metric-main">
           <span class="metric-value">{{ currentWeightNum.toFixed(1) }}</span>
           <span class="metric-unit">kg</span>
-          <span class="metric-target">Target: {{ targetWeightNum.toFixed(1) }}kg</span>
+          <span class="metric-target">目标：{{ targetWeightNum.toFixed(1) }}kg</span>
         </div>
         <div class="metric-bar">
           <div class="metric-bar-inner" :style="{ width: `${planProgress}%` }"></div>
         </div>
       </article>
       <article class="metric-card">
-        <p class="metric-label">Estimated Goal</p>
+        <p class="metric-label">预计达标</p>
         <div class="metric-main">
           <span class="metric-value metric-date">{{ forecastDateLabel }}</span>
         </div>
-        <p class="metric-muted">Based on latest execution quality</p>
+        <p class="metric-muted">基于最新执行质量预测</p>
       </article>
       <article class="metric-card">
-        <p class="metric-label">Execution Quality</p>
+        <p class="metric-label">执行质量</p>
         <div class="metric-main">
-          <span class="metric-value">🔥 {{ streakDays }} Days</span>
+          <span class="metric-value">🔥 {{ streakDays }} 天</span>
         </div>
-        <p class="metric-muted">Success Rate: {{ weekSuccessRate }}%</p>
+        <p class="metric-muted">成功率：{{ weekSuccessRate }}%</p>
       </article>
     </section>
 
-    <section v-if="plan" class="calendar-layout">
+    <section v-if="!initializing && plan" class="calendar-layout">
       <div class="calendar-main">
         <div class="calendar-head">
           <h2>{{ monthLabel }}</h2>
@@ -978,6 +993,19 @@ onMounted(async () => {
   color: #bbf7d0;
   background: rgba(22, 163, 74, 0.15);
   border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.loading-card {
+  background: #0f172a;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.loading-card .muted {
+  margin: 0;
+  color: #94a3b8;
 }
 
 .wizard-card {
@@ -1486,7 +1514,7 @@ onMounted(async () => {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 12px;
   min-height: 76px;
-  background: rgba(255, 255, 255, 0.04);
+  background: #1e293b;
   text-align: left;
   padding: 8px;
   display: flex;
@@ -1500,27 +1528,31 @@ onMounted(async () => {
 }
 
 .status-green {
-  background: #0f3530;
+  background: #1e293b;
   border-color: rgba(52, 211, 153, 0.45);
   border-top: 4px solid #34d399;
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.2);
 }
 
 .status-yellow {
-  background: #3f3215;
+  background: #1e293b;
   border-color: rgba(251, 191, 36, 0.45);
   border-top: 4px solid #fbbf24;
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.2);
 }
 
 .status-red {
-  background: #3a2028;
+  background: #1e293b;
   border-color: rgba(248, 113, 113, 0.45);
   border-top: 4px solid #f87171;
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.2);
 }
 
 .status-gray {
   background: #1e293b;
   border-color: rgba(148, 163, 184, 0.35);
   border-top: 4px solid rgba(148, 163, 184, 0.7);
+  box-shadow: none;
 }
 
 .day-number {
@@ -1639,9 +1671,10 @@ onMounted(async () => {
 
 .entry-row {
   display: grid;
-  grid-template-columns: 1fr 88px 88px 40px;
+  grid-template-columns: minmax(110px, 1fr) 76px auto 32px;
   gap: 6px;
   margin-bottom: 6px;
+  align-items: center;
 }
 
 .exercise-row {
@@ -1661,6 +1694,7 @@ onMounted(async () => {
 
 .entry-row select {
   min-width: 0;
+  padding-right: 24px;
   color-scheme: dark;
 }
 
@@ -1672,6 +1706,7 @@ onMounted(async () => {
 .entry-kcal {
   align-self: center;
   text-align: right;
+  white-space: nowrap;
   color: #cbd5e1;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
