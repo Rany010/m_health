@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fat Loss Planner - Full System UI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .step-active { color: #3b82f6; border-color: #3b82f6; }
+        .input-field { width: 100%; padding: 0.75rem 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; outline: none; transition: all 0.2s; }
+        .input-field:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #bfdbfe; }
+    </style>
+</head>
+<body class="bg-[#f8fafc] text-slate-700 min-h-screen">
+
+<div id="app">
+    <div v-if="currentPage === 'login'" class="min-h-screen flex items-center justify-center p-6 bg-slate-900">
+        <div class="max-w-md w-full bg-white rounded-3xl p-10 shadow-2xl">
+            <div class="text-center mb-10">
+                <div class="inline-block bg-blue-600 text-white p-3 rounded-2xl mb-4"><i class="fas fa-fire-alt text-2xl"></i></div>
+                <h1 class="text-2xl font-black italic uppercase tracking-tighter">Fat Loss Planner</h1>
+                <p class="text-slate-400 text-sm mt-2">Welcome back, let's keep the streak! 🔥</p>
+            </div>
+            
+            <form @submit.prevent="handleLogin" class="space-y-5">
+                <div>
+                    <label class="text-xs font-bold text-slate-400 uppercase ml-1">Account ID (6 Digits)</label>
+                    <input
+                        type="text"
+                        maxlength="6"
+                        placeholder="000000"
+                        v-model="accountId"
+                        class="input-field mt-1 font-mono text-lg tracking-widest text-center"
+                        :disabled="isLocked || isSubmitting"
+                        required
+                    >
+                    <p v-if="accountId && !isValidAccountId" class="text-xs text-red-500 mt-2 ml-1">账号必须为 6 位数字。</p>
+                    <p v-if="isWeakAccount" class="text-xs text-amber-500 mt-2 ml-1">不建议使用弱账号（如 000000/123456/111111）。</p>
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-slate-400 uppercase ml-1">Password</label>
+                    <input
+                        type="password"
+                        placeholder="••••••••"
+                        v-model="password"
+                        class="input-field mt-1"
+                        :disabled="isLocked || isSubmitting"
+                        required
+                    >
+                </div>
+                <label class="flex items-center gap-2 text-xs text-slate-500">
+                    <input type="checkbox" v-model="rememberSevenDays" :disabled="isLocked || isSubmitting">
+                    保持登录 7 天（会话自动续期）
+                </label>
+                <div v-if="loginError" class="bg-red-50 border border-red-100 text-red-600 text-xs rounded-xl px-3 py-2">
+                    {{ loginError }}
+                </div>
+                <button
+                    type="submit"
+                    class="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/20 disabled:bg-slate-400"
+                    :disabled="isLocked || isSubmitting || !canSubmit"
+                >
+                    {{ isSubmitting ? 'SIGNING IN...' : 'SIGN IN' }}
+                </button>
+                <p v-if="isLocked" class="text-center text-xs text-amber-500">
+                    账号已锁定，请在 {{ lockRemainMinutes }}分{{ lockRemainSeconds }}秒后重试
+                </p>
+                <p class="text-center text-xs text-slate-400">Security Note: 5 failed attempts will lock your account</p>
+                <p class="text-center text-[11px] text-slate-400">统一错误提示，不区分账号不存在与密码错误。</p>
+            </form>
+        </div>
+    </div>
+
+    <div v-if="currentPage === 'onboarding'" class="max-w-4xl mx-auto py-12 px-6">
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-10">
+            <div class="flex justify-between items-center mb-10 border-b pb-6">
+                <h2 class="text-3xl font-black">Create Your Plan</h2>
+                <div class="flex gap-4">
+                    <span :class="['w-8 h-8 rounded-full flex items-center justify-center font-bold border-2', onboardingStep >= 1 ? 'step-active' : 'text-slate-300']">1</span>
+                    <span :class="['w-8 h-8 rounded-full flex items-center justify-center font-bold border-2', onboardingStep >= 2 ? 'step-active' : 'text-slate-300']">2</span>
+                </div>
+            </div>
+
+            <div v-if="onboardingStep === 1" class="space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="space-y-4">
+                        <label class="text-sm font-bold text-slate-500 uppercase">Gender & Age</label>
+                        <div class="flex gap-4">
+                            <button class="flex-1 p-4 border-2 rounded-xl font-bold border-blue-600 text-blue-600 bg-blue-50">Male</button>
+                            <button class="flex-1 p-4 border-2 rounded-xl font-bold border-slate-100 text-slate-400 hover:border-blue-600">Female</button>
+                        </div>
+                        <input type="number" placeholder="Age" class="input-field">
+                    </div>
+                    <div class="space-y-4">
+                        <label class="text-sm font-bold text-slate-500 uppercase">Metrics (cm / kg)</label>
+                        <input type="number" placeholder="Height" class="input-field">
+                        <div class="flex gap-4">
+                            <input type="number" placeholder="Current Weight" class="input-field">
+                            <input type="number" placeholder="Target Weight" class="input-field">
+                        </div>
+                    </div>
+                </div>
+                <button @click="onboardingStep = 2" class="w-full md:w-auto px-12 bg-slate-900 text-white font-bold py-4 rounded-xl float-right">NEXT STEP</button>
+            </div>
+
+            <div v-if="onboardingStep === 2" class="space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="space-y-4">
+                        <label class="text-sm font-bold text-slate-500 uppercase">Activity Level</label>
+                        <select class="input-field">
+                            <option>Sedentary (久坐)</option>
+                            <option>Light Active (轻度活动)</option>
+                            <option>Moderate (中度活动)</option>
+                        </select>
+                    </div>
+                    <div class="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                        <h4 class="font-bold text-blue-800 mb-2">Calculated Plan</h4>
+                        <div class="space-y-2 text-sm text-blue-600">
+                            <div class="flex justify-between"><span>BMR</span><span class="font-bold">1,750 kcal</span></div>
+                            <div class="flex justify-between"><span>Daily Target</span><span class="font-bold text-lg">1,450 kcal</span></div>
+                            <div class="flex justify-between"><span>Deficit Target</span><span class="font-bold text-lg">500 kcal</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex gap-4 justify-end">
+                    <button @click="onboardingStep = 1" class="px-8 bg-slate-100 text-slate-600 font-bold py-4 rounded-xl">BACK</button>
+                    <button @click="finishOnboarding" class="px-12 bg-blue-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-500/20">START MY JOURNEY</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="currentPage === 'dashboard'">
+        <nav class="bg-white border-b px-8 py-4 flex justify-between items-center sticky top-0 z-50">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 text-white p-2 rounded-lg"><i class="fas fa-fire-alt"></i></div>
+                <span class="font-black text-xl tracking-tight uppercase">FatLoss<span class="text-blue-600">Planner</span></span>
+            </div>
+            <div class="hidden md:flex gap-8 text-sm font-bold">
+                <a href="#" class="text-blue-600">DASHBOARD</a>
+                <a href="#" class="text-slate-400 hover:text-slate-600">ANALYTICS</a>
+                <a href="#" class="text-slate-400 hover:text-slate-600">PLAN SETTINGS</a>
+            </div>
+            <button @click="currentPage = 'login'" class="text-slate-400 hover:text-red-500 transition"><i class="fas fa-sign-out-alt"></i></button>
+        </nav>
+
+        <div class="max-w-[1440px] mx-auto p-8">
+            <h1 class="text-3xl font-black mb-8 italic">READY TO BURN? 🔥</h1>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 space-y-8">
+                    <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                        <div class="flex justify-between items-end mb-6">
+                            <h2 class="text-2xl font-black">March 2026</h2>
+                            <span class="bg-emerald-100 text-emerald-600 px-4 py-1 rounded-full text-xs font-black tracking-widest uppercase">Active Plan</span>
+                        </div>
+                        <div class="grid grid-cols-7 gap-3">
+                            <div v-for="i in 31" :key="i" 
+                                 class="aspect-square border border-slate-50 rounded-2xl flex items-center justify-center font-bold text-slate-400 hover:bg-slate-50 cursor-pointer transition">
+                                {{i}}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="bg-slate-900 text-white p-8 rounded-3xl shadow-xl">
+                        <h3 class="text-xl font-bold mb-6">Record Today</h3>
+                        <div class="space-y-6">
+                            <div>
+                                <label class="text-xs font-bold text-slate-500 block mb-3 uppercase tracking-wider">Quick Food Entry</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button class="bg-white/10 hover:bg-white/20 p-3 rounded-xl text-xs transition border border-white/5">+ 鸡蛋</button>
+                                    <button class="bg-white/10 hover:bg-white/20 p-3 rounded-xl text-xs transition border border-white/5">+ 鸡胸肉</button>
+                                    <button class="bg-white/10 hover:bg-white/20 p-3 rounded-xl text-xs transition border border-white/5">+ 米饭</button>
+                                    <button class="bg-white/10 hover:bg-white/20 p-3 rounded-xl text-xs transition border border-white/5">+ 牛肉</button>
+                                </div>
+                            </div>
+                            <hr class="border-white/10">
+                            <div>
+                                <label class="text-xs font-bold text-slate-500 block mb-3 uppercase tracking-wider">Exercise</label>
+                                <div class="flex gap-2">
+                                    <input type="number" placeholder="Min" class="w-20 bg-white/5 border border-white/10 rounded-xl p-3 text-white">
+                                    <select class="flex-1 bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs">
+                                        <option>Running</option>
+                                        <option>Weight</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button class="w-full bg-blue-600 py-4 rounded-2xl font-black text-sm shadow-lg shadow-blue-500/20">SAVE RECORD</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * UI Controller - Navigating between system modules
+     */
+    const { createApp, ref, computed, onMounted } = Vue;
+
+    createApp({
+        setup() {
+            // State: login | onboarding | dashboard
+            const currentPage = ref('login');
+            const onboardingStep = ref(1);
+            const accountId = ref('');
+            const password = ref('');
+            const rememberSevenDays = ref(true);
+            const failCount = ref(0);
+            const isSubmitting = ref(false);
+            const loginError = ref('');
+            const lockUntil = ref(0);
+            const nowTs = ref(Date.now());
+
+            const weakAccounts = new Set(['000000', '123456', '111111']);
+            const isValidAccountId = computed(() => /^\d{6}$/.test(accountId.value));
+            const isWeakAccount = computed(() => weakAccounts.has(accountId.value));
+            const isLocked = computed(() => nowTs.value < lockUntil.value);
+            const canSubmit = computed(() => isValidAccountId.value && password.value.length > 0);
+            const lockRemainMs = computed(() => Math.max(lockUntil.value - nowTs.value, 0));
+            const lockRemainMinutes = computed(() => String(Math.floor(lockRemainMs.value / 60000)).padStart(2, '0'));
+            const lockRemainSeconds = computed(() => String(Math.floor((lockRemainMs.value % 60000) / 1000)).padStart(2, '0'));
+
+            /**
+             * Handle Login Simulation
+             */
+            const handleLogin = () => {
+                if (isLocked.value || !canSubmit.value) {
+                    return;
+                }
+
+                isSubmitting.value = true;
+                loginError.value = '';
+
+                // Demo auth: intentionally keep single generic error message to avoid account enumeration.
+                const mockSuccess = accountId.value === '668802' && password.value === 'password123';
+
+                setTimeout(() => {
+                    isSubmitting.value = false;
+                    if (mockSuccess) {
+                        failCount.value = 0;
+                        currentPage.value = 'onboarding';
+                        return;
+                    }
+
+                    failCount.value += 1;
+                    loginError.value = '账号或密码错误，请重试。';
+                    if (failCount.value >= 5) {
+                        lockUntil.value = Date.now() + 15 * 60 * 1000;
+                        loginError.value = '账号或密码错误，请稍后再试。';
+                    }
+                }, 400);
+            };
+
+            /**
+             * Finalize Plan Generation
+             */
+            const finishOnboarding = () => {
+                // Logic for creating plan in DB
+                currentPage.value = 'dashboard';
+            };
+
+            onMounted(() => {
+                setInterval(() => {
+                    nowTs.value = Date.now();
+                }, 1000);
+            });
+
+            return {
+                currentPage,
+                onboardingStep,
+                accountId,
+                password,
+                rememberSevenDays,
+                isSubmitting,
+                loginError,
+                isValidAccountId,
+                isWeakAccount,
+                isLocked,
+                canSubmit,
+                lockRemainMinutes,
+                lockRemainSeconds,
+                handleLogin,
+                finishOnboarding
+            }
+        }
+    }).mount('#app');
+</script>
+
+</body>
+</html>

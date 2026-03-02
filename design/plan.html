@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plan Wizard - Fat Loss Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .option-card {
+            border: 2px solid #f1f5f9;
+            border-radius: 1rem;
+            padding: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .option-card:hover {
+            border-color: #bfdbfe;
+            background: rgba(239, 246, 255, 0.5);
+        }
+        .option-card.active {
+            border-color: #2563eb;
+            background: #eff6ff;
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+        }
+        .step-line { height: 2px; flex-grow: 1; background: #e2e8f0; margin: 0 1rem; position: relative; top: 1rem; }
+        .step-line.active { background: #3b82f6; }
+    </style>
+</head>
+<body class="bg-[#f8fafc] text-slate-700 min-h-screen">
+
+<div id="app" class="max-w-5xl mx-auto py-10 px-6">
+    <div class="mb-12 text-center">
+        <h1 class="text-4xl font-black text-slate-900 mb-4">定制你的减脂蓝图</h1>
+        <p class="text-slate-500">科学计算 BMR 与 TDEE，生成可执行的周期计划</p>
+    </div>
+
+    <div class="flex items-center mb-12 max-w-2xl mx-auto">
+        <div class="flex flex-col items-center">
+            <div :class="['w-8 h-8 rounded-full flex items-center justify-center font-bold border-2', currentStep >= 1 ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 text-slate-300']">1</div>
+            <span class="text-[10px] font-bold mt-2 uppercase">身体基础</span>
+        </div>
+        <div :class="['step-line', currentStep >= 2 ? 'active' : '']"></div>
+        <div class="flex flex-col items-center">
+            <div :class="['w-8 h-8 rounded-full flex items-center justify-center font-bold border-2', currentStep >= 2 ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 text-slate-300']">2</div>
+            <span class="text-[10px] font-bold mt-2 uppercase">生活方式</span>
+        </div>
+        <div :class="['step-line', currentStep >= 3 ? 'active' : '']"></div>
+        <div class="flex flex-col items-center">
+            <div :class="['w-8 h-8 rounded-full flex items-center justify-center font-bold border-2', currentStep >= 3 ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 text-slate-300']">3</div>
+            <span class="text-[10px] font-bold mt-2 uppercase">计划确认</span>
+        </div>
+    </div>
+
+    <div v-if="currentStep === 1" class="bg-white rounded-3xl p-10 shadow-sm border border-slate-100">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+            <section class="space-y-6">
+                <h3 class="text-xl font-bold border-l-4 border-blue-600 pl-4">核心生理指标</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div @click="formData.sex = 'male'" :class="['option-card text-center', formData.sex === 'male' ? 'active' : '']">
+                        <i class="fas fa-mars text-2xl mb-2 text-blue-500"></i>
+                        <div class="font-bold">男性</div>
+                    </div>
+                    <div @click="formData.sex = 'female'" :class="['option-card text-center', formData.sex === 'female' ? 'active' : '']">
+                        <i class="fas fa-venus text-2xl mb-2 text-pink-500"></i>
+                        <div class="font-bold">女性</div>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">年龄 (Age)</label>
+                    <input type="number" v-model="formData.age" class="w-full bg-slate-50 border-none rounded-xl p-4 text-lg font-bold">
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">身高 (cm)</label>
+                    <input type="number" v-model="formData.height" class="w-full bg-slate-50 border-none rounded-xl p-4 text-lg font-bold">
+                </div>
+            </section>
+
+            <section class="space-y-6">
+                <h3 class="text-xl font-bold border-l-4 border-blue-600 pl-4">体重目标</h3>
+                <div class="p-6 bg-slate-900 rounded-2xl text-white space-y-6">
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 block mb-2 uppercase">当前体重 (kg)</label>
+                        <input type="number" v-model="formData.currentWeight" class="w-full bg-white/10 border border-white/10 rounded-xl p-4 text-2xl font-black text-white outline-none">
+                    </div>
+                    <div class="flex justify-center"><i class="fas fa-arrow-down text-blue-400"></i></div>
+                    <div>
+                        <label class="text-[10px] font-bold text-slate-500 block mb-2 uppercase">目标体重 (kg)</label>
+                        <input type="number" v-model="formData.targetWeight" class="w-full bg-white/10 border border-white/10 rounded-xl p-4 text-2xl font-black text-white outline-none">
+                    </div>
+                </div>
+            </section>
+        </div>
+        <div class="mt-10 flex justify-end">
+            <button @click="nextStep" class="px-12 py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition shadow-xl shadow-blue-600/20">下一步：运动习惯</button>
+        </div>
+    </div>
+
+    <div v-if="currentStep === 2" class="bg-white rounded-3xl p-10 shadow-sm border border-slate-100">
+        <div class="space-y-10">
+            <section>
+                <h3 class="text-xl font-bold mb-6">工作与活动模式</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div v-for="(item, key) in workTypes" :key="key"
+                         @click="formData.workType = item.value"
+                         :class="['option-card', formData.workType === item.value ? 'active' : '']">
+                        <div class="font-black mb-1">{{ item.label }}</div>
+                        <p class="text-[10px] text-slate-500">{{ item.desc }}</p>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="text-xl font-bold mb-6">日常活动强度</h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div v-for="(factor, key) in activityLevels" :key="key"
+                         @click="formData.activity = factor.value"
+                         :class="['option-card', formData.activity === factor.value ? 'active' : '']">
+                        <div class="font-black text-lg mb-1">{{ factor.label }}</div>
+                        <p class="text-[10px] text-slate-500 leading-tight">{{ factor.desc }}</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">平均每日步数</label>
+                    <select v-model="formData.stepsTier" class="w-full bg-slate-50 rounded-xl p-4">
+                        <option value="lt3000">少于 3000</option>
+                        <option value="3000_6000">3000 - 6000</option>
+                        <option value="6000_10000">6000 - 10000</option>
+                        <option value="gt10000">超过 10000</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">通勤方式</label>
+                    <select v-model="formData.commuteType" class="w-full bg-slate-50 rounded-xl p-4">
+                        <option value="none">无</option>
+                        <option value="walk">步行</option>
+                        <option value="bike">骑车</option>
+                        <option value="bus">公交</option>
+                        <option value="car">开车</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">睡眠情况</label>
+                    <select v-model="formData.sleepTier" class="w-full bg-slate-50 rounded-xl p-4">
+                        <option value="poor">不足 6h</option>
+                        <option value="normal">6-8h</option>
+                        <option value="good">8h 以上</option>
+                    </select>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="text-xl font-bold mb-4">运动习惯</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">每周运动次数</label>
+                        <select v-model="formData.exerciseFreq" class="w-full bg-slate-50 rounded-xl p-4">
+                            <option value="0">几乎不</option>
+                            <option value="2">1-2 次 / 周</option>
+                            <option value="4">3-5 次 / 周</option>
+                            <option value="6">6+ 次 / 周</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">每次运动时长</label>
+                        <select v-model="formData.exerciseDuration" class="w-full bg-slate-50 rounded-xl p-4">
+                            <option value="20">15-30 分钟</option>
+                            <option value="40">30-45 分钟</option>
+                            <option value="60">45-60 分钟</option>
+                            <option value="75">60+ 分钟</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">期望达标周期</label>
+                        <select v-model="formData.expectedWeeks" class="w-full bg-slate-50 rounded-xl p-4">
+                            <option value="8">8 周</option>
+                            <option value="12">12 周</option>
+                            <option value="16">16 周</option>
+                            <option value="20">20 周</option>
+                            <option value="24">24 周</option>
+                        </select>
+                    </div>
+                </div>
+
+                <label class="text-xs font-bold text-slate-400 block mb-2 uppercase">运动类型（可多选）</label>
+                <div class="flex flex-wrap gap-3">
+                    <button
+                        v-for="type in exerciseTypeOptions"
+                        :key="type"
+                        @click="toggleExerciseType(type)"
+                        :class="[
+                            'px-4 py-2 rounded-xl border-2 font-bold text-sm',
+                            formData.exerciseTypes.includes(type) ? 'border-blue-600 bg-blue-50 text-blue-600' : 'border-slate-100 text-slate-500'
+                        ]"
+                    >
+                        {{ type }}
+                    </button>
+                </div>
+            </section>
+        </div>
+        <div class="mt-12 flex justify-between">
+            <button @click="currentStep = 1" class="px-8 py-4 text-slate-400 font-bold">返回修改</button>
+            <button @click="nextStep" class="px-12 py-4 bg-blue-600 text-white font-black rounded-2xl">生成预测报告</button>
+        </div>
+    </div>
+
+    <div v-if="currentStep === 3" class="dashboard-grid space-y-6">
+        <div class="bg-white rounded-3xl p-10 shadow-sm border border-slate-100">
+            <h3 class="text-2xl font-black mb-8 italic">计划评估报告</h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                <div class="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                    <p class="text-[10px] font-bold text-blue-400 uppercase mb-2">基础代谢 (BMR)</p>
+                    <p class="text-2xl font-black text-blue-700">{{ calculatedBmr }} <span class="text-sm">kcal</span></p>
+                </div>
+                <div class="bg-emerald-50 p-6 rounded-2xl border border-emerald-100">
+                    <p class="text-[10px] font-bold text-emerald-400 uppercase mb-2">每日消耗 (TDEE)</p>
+                    <p class="text-2xl font-black text-emerald-700">{{ calculatedTdee }} <span class="text-sm">kcal</span></p>
+                </div>
+                <div class="bg-slate-900 p-6 rounded-2xl text-white">
+                    <p class="text-[10px] font-bold text-slate-500 uppercase mb-2">建议日摄入</p>
+                    <p class="text-2xl font-black text-blue-400">{{ dailyIntakeTarget }} <span class="text-sm text-white">kcal</span></p>
+                </div>
+            </div>
+
+            
+
+            <div class="bg-slate-50 rounded-2xl p-8 border border-slate-200">
+                <h4 class="font-bold mb-4 text-slate-800"><i class="fas fa-chart-line mr-2"></i>周期执行预测</h4>
+                <div class="flex flex-col md:flex-row justify-between items-center gap-8">
+                    <div class="text-center md:text-left">
+                        <p class="text-sm text-slate-500">预计减重速度</p>
+                        <p class="text-xl font-bold">{{ weeklyLossKg }} kg / 每周</p>
+                    </div>
+                    <div class="h-10 w-[1px] bg-slate-200 hidden md:block"></div>
+                    <div class="text-center">
+                        <p class="text-sm text-slate-500">预计达标日期</p>
+                        <p class="text-xl font-bold text-blue-600">{{ planEndDate }}</p>
+                    </div>
+                    <div class="h-10 w-[1px] bg-slate-200 hidden md:block"></div>
+                    <div class="text-center">
+                        <p class="text-sm text-slate-500">计划周期</p>
+                        <p class="text-xl font-bold italic">{{ planDays }} 天</p>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="dailyIntakeTarget < 1200" class="mt-6 bg-red-50 p-4 rounded-xl border border-red-100 flex items-center gap-3 text-red-600 text-sm font-medium">
+                <i class="fas fa-exclamation-triangle"></i>
+                建议摄入低于 1200kcal，可能存在代谢损伤风险，请谨慎执行。
+            </div>
+            <div v-if="isTooFast" class="mt-4 bg-amber-50 p-4 rounded-xl border border-amber-100 flex items-center gap-3 text-amber-700 text-sm font-medium">
+                <i class="fas fa-triangle-exclamation"></i>
+                当前预计每周降重超过 1.0kg，可能过快，建议下调目标缺口或延长周期。
+            </div>
+            <div v-if="isBeyondExpectedWeeks" class="mt-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-slate-600 text-sm">
+                当前配置预计 {{ Math.ceil(planDays / 7) }} 周达标，超过你设置的 {{ formData.expectedWeeks }} 周，可继续调整参数后再激活计划。
+            </div>
+
+            <div class="mt-12 flex justify-between items-center">
+                <p class="text-xs text-slate-400 max-w-sm">点击“激活计划”后，系统将为你生成 {{ planStartDate }} - {{ planEndDate }} 的执行日历。</p>
+                <div class="flex gap-4">
+                    <button @click="currentStep = 2" class="px-8 py-4 text-slate-400 font-bold">重新配置</button>
+                    <button @click="finishWizard" class="px-12 py-4 bg-emerald-600 text-white font-black rounded-2xl shadow-xl shadow-emerald-600/20 hover:bg-emerald-700 transition">
+                        激活减脂计划
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    /**
+     * Plan Wizard Logic - Implements Calculation Specification
+     */
+    const { createApp, ref, computed } = Vue;
+
+    createApp({
+        setup() {
+            const currentStep = ref(1);
+            
+            const formData = ref({
+                sex: 'male',
+                age: 28,
+                height: 175,
+                currentWeight: 85,
+                targetWeight: 75,
+                activity: 1.2,
+                workType: 'sedentary',
+                stepsTier: '3000_6000',
+                commuteType: 'bus',
+                sleepTier: 'normal',
+                exerciseFreq: '2',
+                exerciseDuration: '40',
+                exerciseTypes: ['跑步'],
+                expectedWeeks: '12'
+            });
+
+            const activityLevels = {
+                'sedentary': { label: '久坐', value: 1.2, desc: '办公族，极少运动' },
+                'light': { label: '轻度', value: 1.3, desc: '偶尔步行，家务劳动' },
+                'moderate': { label: '中度', value: 1.45, desc: '每周运动3-5次' },
+                'heavy': { label: '高强度', value: 1.6, desc: '每日重体力或竞技运动' }
+            };
+            const workTypes = {
+                'sedentary': { label: '久坐办公', value: 'sedentary', desc: '长期坐姿工作' },
+                'standing': { label: '站立服务', value: 'standing', desc: '长时间站立但强度中等' },
+                'labor': { label: '体力工作', value: 'labor', desc: '日常工作体力消耗较高' }
+            };
+            const exerciseTypeOptions = ['跑步', '力量', '游泳', '骑行', '球类', 'HIIT'];
+
+            /**
+             * BMR Calculation (Mifflin-St Jeor)
+             */
+            const calculatedBmr = computed(() => {
+                const { sex, age, height, currentWeight } = formData.value;
+                let bmr = (10 * currentWeight) + (6.25 * height) - (5 * age);
+                return sex === 'male' ? Math.round(bmr + 5) : Math.round(bmr - 161);
+            });
+
+            /**
+             * TDEE Calculation
+             */
+            const calculatedTdee = computed(() => {
+                return Math.round(calculatedBmr.value * formData.value.activity);
+            });
+
+            /**
+             * Daily Intake Target (Deficit = 500)
+             */
+            const recommendedDeficit = computed(() => {
+                const freq = Number(formData.value.exerciseFreq);
+                const duration = Number(formData.value.exerciseDuration);
+                const dynamic = 350 + Math.round((freq * duration) / 12);
+                return Math.min(Math.max(dynamic, 350), 800);
+            });
+
+            const dailyIntakeTarget = computed(() => {
+                return calculatedTdee.value - recommendedDeficit.value;
+            });
+
+            const weeklyLossKg = computed(() => {
+                const weeklyKcalGap = recommendedDeficit.value * 7;
+                return (weeklyKcalGap / 7700).toFixed(2);
+            });
+
+            const planDays = computed(() => {
+                const totalLoss = Math.max(formData.value.currentWeight - formData.value.targetWeight, 0);
+                const lossPerWeek = Math.max(Number(weeklyLossKg.value), 0.1);
+                return Math.max(Math.ceil((totalLoss / lossPerWeek) * 7), 7);
+            });
+
+            const formatDate = (date) => {
+                const y = date.getFullYear();
+                const m = String(date.getMonth() + 1).padStart(2, '0');
+                const d = String(date.getDate()).padStart(2, '0');
+                return `${y}-${m}-${d}`;
+            };
+            const planStartDate = computed(() => formatDate(new Date()));
+            const planEndDate = computed(() => {
+                const end = new Date();
+                end.setDate(end.getDate() + planDays.value);
+                return formatDate(end);
+            });
+            const isTooFast = computed(() => Number(weeklyLossKg.value) > 1.0);
+            const isBeyondExpectedWeeks = computed(() => Math.ceil(planDays.value / 7) > Number(formData.value.expectedWeeks));
+
+            const nextStep = () => {
+                if (currentStep.value === 1 && formData.value.currentWeight <= formData.value.targetWeight) {
+                    alert('当前体重应大于目标体重，请调整后继续。');
+                    return;
+                }
+                currentStep.value += 1;
+            };
+            const toggleExerciseType = (exerciseType) => {
+                const selected = formData.value.exerciseTypes;
+                const index = selected.indexOf(exerciseType);
+                if (index >= 0) {
+                    selected.splice(index, 1);
+                } else {
+                    selected.push(exerciseType);
+                }
+            };
+            const finishWizard = () => { alert("Plan Activated! Redirecting to Dashboard..."); };
+
+            return {
+                currentStep, formData, activityLevels,
+                workTypes, exerciseTypeOptions,
+                calculatedBmr, calculatedTdee, dailyIntakeTarget,
+                weeklyLossKg, planDays, planStartDate, planEndDate, isTooFast, isBeyondExpectedWeeks,
+                nextStep, toggleExerciseType, finishWizard
+            }
+        }
+    }).mount('#app');
+</script>
+
+</body>
+</html>
