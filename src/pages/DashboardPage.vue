@@ -1391,7 +1391,7 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 360px;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .calendar-main {
@@ -1399,7 +1399,9 @@ onMounted(async () => {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 14px;
   padding: 14px;
-  align-self: start;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .calendar-head {
@@ -1477,6 +1479,7 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
+  align-content: start;
 }
 
 .calendar-cell {
@@ -1497,23 +1500,27 @@ onMounted(async () => {
 }
 
 .status-green {
-  background: rgba(16, 185, 129, 0.12);
-  border-top: 4px solid #10b981;
+  background: #0f3530;
+  border-color: rgba(52, 211, 153, 0.45);
+  border-top: 4px solid #34d399;
 }
 
 .status-yellow {
-  background: rgba(245, 158, 11, 0.12);
-  border-top: 4px solid #f59e0b;
+  background: #3f3215;
+  border-color: rgba(251, 191, 36, 0.45);
+  border-top: 4px solid #fbbf24;
 }
 
 .status-red {
-  background: rgba(239, 68, 68, 0.12);
-  border-top: 4px solid #ef4444;
+  background: #3a2028;
+  border-color: rgba(248, 113, 113, 0.45);
+  border-top: 4px solid #f87171;
 }
 
 .status-gray {
-  background: rgba(148, 163, 184, 0.1);
-  border-top: 4px solid rgba(148, 163, 184, 0.5);
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, 0.35);
+  border-top: 4px solid rgba(148, 163, 184, 0.7);
 }
 
 .day-number {
@@ -1746,23 +1753,21 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 10px;
   font-size: 12px;
+  background: #0f172a;
 }
 
 .tip-card {
-  border: 1px solid rgba(96, 165, 250, 0.35);
-  background: rgba(30, 64, 175, 0.18);
+  border: 1px solid rgba(96, 165, 250, 0.42);
   color: #bfdbfe;
 }
 
 .warn-card {
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  background: rgba(120, 53, 15, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.42);
   color: #fcd34d;
 }
 
 .warn-card.red {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(127, 29, 29, 0.22);
+  border-color: rgba(239, 68, 68, 0.42);
   color: #fca5a5;
 }
 
