@@ -940,7 +940,7 @@ onMounted(async () => {
 
 .dashboard-header .title {
   margin: 0;
-  color: #e2e8f0;
+  color: #0f172a;
 }
 
 .header-tools {
@@ -953,7 +953,7 @@ onMounted(async () => {
 .header-account {
   margin: 0;
   white-space: nowrap;
-  color: #cbd5e1;
+  color: #334155;
 }
 
 .header-logout-btn {
@@ -981,9 +981,9 @@ onMounted(async () => {
 }
 
 .wizard-card {
-  background: #ffffff;
+  background: #0f172a;
   border-radius: 18px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid rgba(148, 163, 184, 0.24);
   padding: 20px;
   margin-bottom: 16px;
 }
@@ -991,12 +991,12 @@ onMounted(async () => {
 .wizard-header h2 {
   margin: 0;
   font-size: 28px;
-  color: #0f172a;
+  color: #e2e8f0;
 }
 
 .wizard-header p {
   margin: 8px 0 0;
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .wizard-steps {
@@ -1010,14 +1010,14 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   min-width: 84px;
-  color: #94a3b8;
+  color: #cbd5e1;
 }
 
 .step span {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  border: 2px solid #cbd5e1;
+  border: 2px solid rgba(148, 163, 184, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1043,7 +1043,7 @@ onMounted(async () => {
 .step-line {
   height: 2px;
   flex: 1;
-  background: #e2e8f0;
+  background: rgba(148, 163, 184, 0.35);
   margin: 0 10px;
 }
 
@@ -1071,7 +1071,7 @@ onMounted(async () => {
 .block-title {
   margin: 0 0 10px;
   font-size: 18px;
-  color: #0f172a;
+  color: #e2e8f0;
 }
 
 .field-stack {
@@ -1081,7 +1081,7 @@ onMounted(async () => {
 .field-stack label {
   display: block;
   margin-bottom: 6px;
-  color: #64748b;
+  color: #cbd5e1;
   font-size: 12px;
   font-weight: 700;
 }
@@ -1089,9 +1089,11 @@ onMounted(async () => {
 .field-stack input,
 .field-stack select {
   width: 100%;
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 10px;
   padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
 }
 
 .gender-grid {
@@ -1102,10 +1104,10 @@ onMounted(async () => {
 }
 
 .option-card {
-  border: 2px solid #f1f5f9;
+  border: 2px solid rgba(148, 163, 184, 0.25);
   border-radius: 12px;
-  background: #ffffff;
-  color: #334155;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
   padding: 12px;
   cursor: pointer;
   transition: all 0.2s;
@@ -1113,14 +1115,15 @@ onMounted(async () => {
 }
 
 .option-card:hover {
-  border-color: #bfdbfe;
-  background: #eff6ff;
+  border-color: #60a5fa;
+  background: rgba(59, 130, 246, 0.22);
+  color: #dbeafe;
 }
 
 .option-card.active {
   border-color: #2563eb;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.3);
+  color: #eff6ff;
 }
 
 .option-card.left {
@@ -1136,7 +1139,7 @@ onMounted(async () => {
 
 .option-card small {
   margin-top: 4px;
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .activity-grid {
@@ -1171,18 +1174,18 @@ onMounted(async () => {
 }
 
 .chip {
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 999px;
   padding: 6px 12px;
-  background: #ffffff;
-  color: #475569;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
   cursor: pointer;
 }
 
 .chip.active {
   border-color: #2563eb;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.28);
+  color: #eff6ff;
 }
 
 .wizard-actions {
@@ -1218,14 +1221,14 @@ onMounted(async () => {
 }
 
 .ghost-btn {
-  background: #f1f5f9;
-  color: #475569;
+  background: #334155;
+  color: #e2e8f0;
 }
 
 .report-title {
   margin: 0 0 12px;
   font-size: 22px;
-  color: #0f172a;
+  color: #e2e8f0;
 }
 
 .kpi-grid {
@@ -1237,31 +1240,35 @@ onMounted(async () => {
 .kpi-card {
   border-radius: 12px;
   padding: 12px;
-  border: 1px solid #dbeafe;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: #0f172a;
 }
 
 .kpi-card small {
   display: block;
-  color: #64748b;
+  color: #94a3b8;
   font-weight: 700;
   margin-bottom: 4px;
 }
 
 .kpi-card strong {
   font-size: 24px;
+  color: #e2e8f0;
 }
 
 .kpi-card.blue {
-  background: #eff6ff;
+  background: rgba(30, 64, 175, 0.22);
+  border-color: rgba(96, 165, 250, 0.4);
 }
 
 .kpi-card.green {
-  background: #ecfdf5;
+  background: rgba(6, 95, 70, 0.24);
+  border-color: rgba(52, 211, 153, 0.35);
 }
 
 .kpi-card.dark {
   background: #0f172a;
-  border-color: #0f172a;
+  border-color: rgba(148, 163, 184, 0.24);
 }
 
 .kpi-card.dark small,
@@ -1271,38 +1278,44 @@ onMounted(async () => {
 
 .predict-box {
   margin-top: 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 12px;
   padding: 14px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .predict-box small {
-  color: #64748b;
+  color: #94a3b8;
 }
 
 .predict-box p {
   margin: 6px 0 0;
   font-weight: 700;
-  color: #0f172a;
+  color: #e2e8f0;
 }
 
 .warn-line {
   margin-top: 10px;
   border-radius: 10px;
   padding: 10px 12px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #dc2626;
+  background: rgba(127, 29, 29, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
   font-size: 13px;
 }
 
 .muted-line {
   margin-top: 8px;
-  color: #64748b;
+  color: #94a3b8;
   font-size: 13px;
+}
+
+.wizard-card select option {
+  background: #0f172a;
+  color: #e2e8f0;
 }
 
 .calendar-top-metrics {
@@ -1313,8 +1326,8 @@ onMounted(async () => {
 }
 
 .metric-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 14px;
   padding: 14px;
 }
@@ -1337,7 +1350,7 @@ onMounted(async () => {
 .metric-value {
   font-size: 26px;
   font-weight: 800;
-  color: #0f172a;
+  color: #e2e8f0;
 }
 
 .metric-date {
@@ -1345,12 +1358,12 @@ onMounted(async () => {
 }
 
 .metric-unit {
-  color: #94a3b8;
+  color: #cbd5e1;
 }
 
 .metric-target {
   margin-left: auto;
-  color: #2563eb;
+  color: #93c5fd;
   font-weight: 700;
   font-size: 12px;
 }
@@ -1358,14 +1371,14 @@ onMounted(async () => {
 .metric-muted {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #64748b;
+  color: #cbd5e1;
 }
 
 .metric-bar {
   margin-top: 10px;
   height: 8px;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: rgba(148, 163, 184, 0.26);
 }
 
 .metric-bar-inner {
@@ -1378,13 +1391,15 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 360px;
   gap: 12px;
+  align-items: start;
 }
 
 .calendar-main {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 14px;
   padding: 14px;
+  align-self: start;
 }
 
 .calendar-head {
@@ -1397,14 +1412,17 @@ onMounted(async () => {
 .calendar-head h2 {
   margin: 0;
   font-size: 24px;
-  color: #0f172a;
+  color: #e2e8f0;
 }
 
 .calendar-date-input {
   width: auto;
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.45);
   border-radius: 10px;
   padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  color-scheme: dark;
 }
 
 .calendar-legend {
@@ -1422,23 +1440,23 @@ onMounted(async () => {
 }
 
 .legend.green {
-  color: #059669;
-  background: #ecfdf5;
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.16);
 }
 
 .legend.yellow {
-  color: #b45309;
-  background: #fefce8;
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.16);
 }
 
 .legend.red {
-  color: #dc2626;
-  background: #fef2f2;
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.16);
 }
 
 .legend.gray {
-  color: #64748b;
-  background: #f8fafc;
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.16);
 }
 
 .calendar-weekdays {
@@ -1462,10 +1480,10 @@ onMounted(async () => {
 }
 
 .calendar-cell {
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 12px;
   min-height: 76px;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.04);
   text-align: left;
   padding: 8px;
   display: flex;
@@ -1479,35 +1497,35 @@ onMounted(async () => {
 }
 
 .status-green {
-  background: #ecfdf5;
+  background: rgba(16, 185, 129, 0.12);
   border-top: 4px solid #10b981;
 }
 
 .status-yellow {
-  background: #fffbeb;
+  background: rgba(245, 158, 11, 0.12);
   border-top: 4px solid #f59e0b;
 }
 
 .status-red {
-  background: #fef2f2;
+  background: rgba(239, 68, 68, 0.12);
   border-top: 4px solid #ef4444;
 }
 
 .status-gray {
-  background: #f8fafc;
-  border-top: 4px solid #e2e8f0;
+  background: rgba(148, 163, 184, 0.1);
+  border-top: 4px solid rgba(148, 163, 184, 0.5);
 }
 
 .day-number {
   font-size: 13px;
   font-weight: 700;
-  color: #334155;
+  color: #e2e8f0;
 }
 
 .day-deficit {
   font-size: 10px;
   font-weight: 700;
-  color: #334155;
+  color: #cbd5e1;
 }
 
 .calendar-side {
@@ -1731,18 +1749,21 @@ onMounted(async () => {
 }
 
 .tip-card {
-  background: #eff6ff;
-  color: #1d4ed8;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(30, 64, 175, 0.18);
+  color: #bfdbfe;
 }
 
 .warn-card {
-  background: #fefce8;
-  color: #a16207;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(120, 53, 15, 0.18);
+  color: #fcd34d;
 }
 
 .warn-card.red {
-  background: #fef2f2;
-  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fca5a5;
 }
 
 @media (max-width: 900px) {

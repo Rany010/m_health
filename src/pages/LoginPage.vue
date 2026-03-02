@@ -181,16 +181,17 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: #0f172a;
+  background: #ffffff;
 }
 
 .login-card {
   width: 100%;
   max-width: 460px;
   border-radius: 24px;
-  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: #0f172a;
   padding: 36px;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.22);
 }
 
 .brand {
@@ -213,7 +214,7 @@ onUnmounted(() => {
 
 .brand h1 {
   margin: 0;
-  color: #0f172a;
+  color: #e2e8f0;
   font-size: 28px;
   font-weight: 900;
   letter-spacing: -0.02em;
@@ -221,7 +222,7 @@ onUnmounted(() => {
 
 .brand p {
   margin: 8px 0 0;
-  color: #64748b;
+  color: #94a3b8;
   font-size: 13px;
 }
 
@@ -233,7 +234,7 @@ onUnmounted(() => {
 .field label {
   display: block;
   margin-bottom: 6px;
-  color: #64748b;
+  color: #cbd5e1;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
@@ -242,12 +243,14 @@ onUnmounted(() => {
 .field input[type="text"],
 .field input[type="password"] {
   width: 100%;
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.45);
   border-radius: 12px;
   padding: 12px 14px;
   outline: none;
   font-size: 15px;
   transition: border-color 0.2s, box-shadow 0.2s;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
 }
 
 .field input[type="text"] {
@@ -258,11 +261,11 @@ onUnmounted(() => {
 
 .field input:focus {
   border-color: #3b82f6;
-  box-shadow: 0 0 0 3px #bfdbfe;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
 }
 
 .field input:disabled {
-  background: #f8fafc;
+  background: rgba(148, 163, 184, 0.16);
   color: #94a3b8;
 }
 
@@ -283,7 +286,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #475569;
+  color: #cbd5e1;
   font-size: 12px;
 }
 
@@ -293,9 +296,9 @@ onUnmounted(() => {
 
 .error-box {
   margin: 0;
-  border: 1px solid #fecaca;
-  background: #fef2f2;
-  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(127, 29, 29, 0.22);
+  color: #fca5a5;
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 12px;
@@ -303,7 +306,7 @@ onUnmounted(() => {
 
 .lock-text {
   margin: 0;
-  color: #d97706;
+  color: #fcd34d;
   font-size: 12px;
 }
 
@@ -343,7 +346,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: #cbd5e1;
 }
 
 .entry-link-btn {
