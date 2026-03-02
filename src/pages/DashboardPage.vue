@@ -940,6 +940,7 @@ onMounted(async () => {
 
 .dashboard-header .title {
   margin: 0;
+  color: #e2e8f0;
 }
 
 .header-tools {
@@ -952,6 +953,7 @@ onMounted(async () => {
 .header-account {
   margin: 0;
   white-space: nowrap;
+  color: #cbd5e1;
 }
 
 .header-logout-btn {
@@ -962,6 +964,20 @@ onMounted(async () => {
 
 .header-feedback {
   margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.error.header-feedback {
+  color: #fecaca;
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
+.success.header-feedback {
+  color: #bbf7d0;
+  background: rgba(22, 163, 74, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.35);
 }
 
 .wizard-card {
