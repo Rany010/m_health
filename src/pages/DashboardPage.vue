@@ -106,6 +106,60 @@ const canActivatePlan = computed(
     Number(planForm.value.age) >= 12 &&
     Number(planForm.value.height_cm) >= 120
 );
+const monthLabel = computed(() => {
+  const base = selectedDate.value || new Date().toISOString().slice(0, 10);
+  const d = new Date(`${base}T00:00:00`);
+  if (Number.isNaN(d.getTime())) {
+    return base.slice(0, 7);
+  }
+  return d.toLocaleDateString("zh-CN", { year: "numeric", month: "long" });
+});
+const forecastDateLabel = computed(() => forecast.value?.estimated_finish_date || "待计算");
+const currentWeightNum = computed(() => Number(plan.value?.latest_weight ?? plan.value?.start_weight ?? 0));
+const targetWeightNum = computed(() => Number(plan.value?.target_weight ?? 0));
+const intakeTotal = computed(() =>
+  currentLog.value.foods.reduce((sum, item) => sum + computeFoodKcal(item), 0)
+);
+const exerciseTotal = computed(() =>
+  currentLog.value.exercises.reduce((sum, item) => sum + computeExerciseKcal(item), 0)
+);
+const previewDeficit = computed(() => {
+  const tdee = Number(plan.value?.tdee ?? 0);
+  return tdee - intakeTotal.value + exerciseTotal.value;
+});
+const quickFoods = computed(() => presets.value.foods.slice(0, 6));
+const selectedCalendarDay = computed(() => {
+  const selected = calendarDays.value.find((day) => day.date === selectedDate.value);
+  return selected || null;
+});
+const continuousFailDays = computed(() => {
+  let count = 0;
+  for (let i = calendarDays.value.length - 1; i >= 0; i -= 1) {
+    if (calendarDays.value[i].status === "red") {
+      count += 1;
+    } else {
+      break;
+    }
+  }
+  return count;
+});
+const forecastPaused = computed(() => {
+  const recent = calendarDays.value.slice(-3);
+  return recent.length === 3 && recent.every((day) => day.status === "gray");
+});
+
+function dayNumberLabel(dateValue) {
+  if (!dateValue) return "";
+  const value = String(dateValue);
+  return value.length >= 2 ? value.slice(-2) : value;
+}
+
+function statusClass(status) {
+  if (status === "green") return "status-green";
+  if (status === "yellow") return "status-yellow";
+  if (status === "red") return "status-red";
+  return "status-gray";
+}
 
 function todayMonthParams() {
   const d = new Date(selectedDate.value);
@@ -314,6 +368,15 @@ async function saveWeight() {
 
 function addFood() {
   currentLog.value.foods.push(newFoodRow());
+}
+
+function addQuickFood(foodPreset) {
+  currentLog.value.foods.push({
+    food_name: foodPreset.food_name,
+    portion: "1份",
+    weight_g: 100,
+    kcal: Math.round(Number(foodPreset.kcal_per_100g ?? 0))
+  });
 }
 
 function addExercise() {
@@ -636,140 +699,149 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section v-if="plan" class="card">
-      <h2 class="title" style="font-size: 18px">计划进度</h2>
-      <p>当前体重：{{ plan.latest_weight }}kg → 目标 {{ plan.target_weight }}kg</p>
-      <p>每日摄入目标：{{ plan.daily_kcal_target }} kcal（缺口 {{ plan.daily_deficit_target }}）</p>
-      <p>进度：{{ planProgress }}%</p>
-      <div class="row">
-        <div>
-          <label>更新体重(kg)</label>
-          <input
-            v-model.number="plan.latest_weight"
-            type="number"
-            min="20"
-            max="250"
-            step="0.1"
-          />
+    <section v-if="plan" class="calendar-top-metrics">
+      <article class="metric-card">
+        <p class="metric-label">Weight Progress</p>
+        <div class="metric-main">
+          <span class="metric-value">{{ currentWeightNum.toFixed(1) }}</span>
+          <span class="metric-unit">kg</span>
+          <span class="metric-target">Target: {{ targetWeightNum.toFixed(1) }}kg</span>
         </div>
-        <div style="align-self: end">
-          <button type="button" :disabled="saving" @click="saveWeight">保存体重</button>
+        <div class="metric-bar">
+          <div class="metric-bar-inner" :style="{ width: `${planProgress}%` }"></div>
         </div>
-      </div>
-      <p class="muted">
-        连续达标 {{ streakDays }} 天；本周成功率 {{ weekSuccessRate }}%；预计达成
-        {{ forecast?.estimated_finish_date || "待计算" }}
-      </p>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Estimated Goal</p>
+        <div class="metric-main">
+          <span class="metric-value metric-date">{{ forecastDateLabel }}</span>
+        </div>
+        <p class="metric-muted">Based on latest execution quality</p>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Execution Quality</p>
+        <div class="metric-main">
+          <span class="metric-value">🔥 {{ streakDays }} Days</span>
+        </div>
+        <p class="metric-muted">Success Rate: {{ weekSuccessRate }}%</p>
+      </article>
     </section>
 
-    <section v-if="plan" class="card">
-      <h2 class="title" style="font-size: 18px">执行日历</h2>
-      <div class="row">
-        <div>
-          <label>选择日期</label>
-          <input v-model="selectedDate" type="date" />
+    <section v-if="plan" class="calendar-layout">
+      <div class="calendar-main">
+        <div class="calendar-head">
+          <h2>{{ monthLabel }}</h2>
+          <input v-model="selectedDate" type="date" class="calendar-date-input" />
         </div>
-      </div>
-      <div class="calendar">
-        <div
-          v-for="day in calendarDays"
-          :key="day.date"
-          class="day-cell"
-          :class="`state-${day.status}`"
-          @click="selectedDate = day.date"
-        >
-          {{ day.date.slice(-2) }}
+        <div class="calendar-legend">
+          <span class="legend green">Green: 达标</span>
+          <span class="legend yellow">Yellow: 接近(80%+)</span>
+          <span class="legend red">Red: 未达标</span>
+          <span class="legend gray">Gray: 未记录</span>
         </div>
-      </div>
-    </section>
-
-    <section v-if="plan" class="card">
-      <h2 class="title" style="font-size: 18px">每日记录（{{ selectedDate }}）</h2>
-      <h3 style="font-size: 16px">食物</h3>
-      <div v-for="(food, index) in currentLog.foods" :key="`food-${index}`" class="row">
-        <div>
-          <label>食物</label>
-          <select v-model="food.food_name" @change="food.kcal = computeFoodKcal(food)">
-            <option v-for="item in presets.foods" :key="item.food_name" :value="item.food_name">
-              {{ item.food_name }} ({{ item.kcal_per_100g }} kcal/100g)
-            </option>
-          </select>
+        <div class="calendar-weekdays">
+          <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
         </div>
-        <div>
-          <label>克重(g)</label>
-          <input
-            v-model.number="food.weight_g"
-            type="number"
-            min="10"
-            max="1000"
-            @input="food.kcal = computeFoodKcal(food)"
-          />
-        </div>
-        <div>
-          <label>热量(kcal)</label>
-          <input :value="computeFoodKcal(food)" disabled />
-        </div>
-        <div>
-          <label>操作</label>
-          <button class="danger" type="button" @click="removeFood(index)">删除</button>
-        </div>
-      </div>
-      <button type="button" class="secondary" style="margin-bottom: 12px" @click="addFood">
-        + 添加食物
-      </button>
-
-      <h3 style="font-size: 16px">运动</h3>
-      <div v-for="(exercise, index) in currentLog.exercises" :key="`exercise-${index}`" class="row">
-        <div>
-          <label>类型</label>
-          <select
-            v-model="exercise.exercise_type"
-            @change="exercise.kcal = computeExerciseKcal(exercise)"
+        <div class="calendar-grid-new">
+          <button
+            v-for="day in calendarDays"
+            :key="day.date"
+            type="button"
+            class="calendar-cell"
+            :class="[statusClass(day.status), { selected: day.date === selectedDate }]"
+            @click="selectedDate = day.date"
           >
-            <option
-              v-for="item in presets.exercises"
-              :key="item.exercise_type"
-              :value="item.exercise_type"
-            >
-              {{ item.exercise_type }} ({{ item.kcal_per_min }} kcal/分钟)
-            </option>
-          </select>
-        </div>
-        <div>
-          <label>时长(分钟)</label>
-          <input
-            v-model.number="exercise.duration_min"
-            type="number"
-            min="0"
-            max="240"
-            @input="exercise.kcal = computeExerciseKcal(exercise)"
-          />
-        </div>
-        <div>
-          <label>消耗(kcal)</label>
-          <input :value="computeExerciseKcal(exercise)" disabled />
-        </div>
-        <div>
-          <label>操作</label>
-          <button class="danger" type="button" @click="removeExercise(index)">删除</button>
+            <span class="day-number">{{ dayNumberLabel(day.date) }}</span>
+            <span v-if="day.status !== 'gray'" class="day-deficit">{{ day.deficit }} kcal</span>
+          </button>
         </div>
       </div>
-      <button
-        type="button"
-        class="secondary"
-        style="margin-bottom: 12px"
-        @click="addExercise"
-      >
-        + 添加运动
-      </button>
 
-      <label>备注</label>
-      <textarea v-model="currentLog.note" rows="3" placeholder="可选"></textarea>
-      <div style="margin-top: 12px">
-        <button type="button" :disabled="saving || loading" @click="saveDailyLog">
-          {{ saving ? "保存中..." : "保存当日记录" }}
-        </button>
-      </div>
+      <aside class="calendar-side">
+        <div class="record-card">
+          <h3>{{ selectedDate }}</h3>
+          <p class="record-hint">目标缺口 {{ plan.daily_deficit_target }} kcal</p>
+
+          <div class="record-stats">
+            <div>
+              <small>Intake</small>
+              <strong>{{ intakeTotal }} kcal</strong>
+            </div>
+            <div>
+              <small>Exercise</small>
+              <strong>-{{ exerciseTotal }} kcal</strong>
+            </div>
+          </div>
+
+          <div class="quick-add">
+            <label>Quick Food Add</label>
+            <div class="quick-btns">
+              <button
+                v-for="food in quickFoods"
+                :key="food.food_name"
+                type="button"
+                class="quick-pill"
+                @click="addQuickFood(food)"
+              >
+                + {{ food.food_name }}
+              </button>
+            </div>
+          </div>
+
+          <div class="entry-list">
+            <h4>食物记录</h4>
+            <div v-for="(food, index) in currentLog.foods" :key="`food-${index}`" class="entry-row">
+              <select v-model="food.food_name">
+                <option v-for="item in presets.foods" :key="item.food_name" :value="item.food_name">
+                  {{ item.food_name }}
+                </option>
+              </select>
+              <input v-model.number="food.weight_g" type="number" min="10" max="1000" />
+              <button type="button" class="danger-btn" @click="removeFood(index)">删</button>
+            </div>
+            <button type="button" class="sub-btn" @click="addFood">+ 添加食物</button>
+          </div>
+
+          <div class="entry-list">
+            <h4>运动记录</h4>
+            <div v-for="(exercise, index) in currentLog.exercises" :key="`exercise-${index}`" class="entry-row">
+              <select v-model="exercise.exercise_type">
+                <option v-for="item in presets.exercises" :key="item.exercise_type" :value="item.exercise_type">
+                  {{ item.exercise_type }}
+                </option>
+              </select>
+              <input v-model.number="exercise.duration_min" type="number" min="0" max="240" />
+              <button type="button" class="danger-btn" @click="removeExercise(index)">删</button>
+            </div>
+            <button type="button" class="sub-btn" @click="addExercise">+ 添加运动</button>
+          </div>
+
+          <div class="weight-box">
+            <label>Update Weight (kg)</label>
+            <div class="weight-row">
+              <input v-model.number="plan.latest_weight" type="number" min="20" max="250" step="0.1" />
+              <button type="button" class="sub-btn" :disabled="saving" @click="saveWeight">保存体重</button>
+            </div>
+          </div>
+
+          <div class="preview-box">
+            当日预估缺口：<strong>{{ previewDeficit }}</strong> kcal
+            <span v-if="selectedCalendarDay">；当前状态：{{ selectedCalendarDay.status }}</span>
+          </div>
+
+          <label>备注</label>
+          <textarea v-model="currentLog.note" rows="2" placeholder="可选备注"></textarea>
+          <button type="button" class="save-btn" :disabled="saving || loading" @click="saveDailyLog">
+            {{ saving ? "保存中..." : "保存当日记录" }}
+          </button>
+        </div>
+
+        <div class="tip-card">建议早晨空腹称重，以获得更稳定的趋势预测。</div>
+        <div v-if="forecastPaused" class="warn-card">最近连续缺失记录，预测已暂停，补录后自动恢复。</div>
+        <div v-if="continuousFailDays >= 3" class="warn-card red">
+          已连续 {{ continuousFailDays }} 天未达标，建议复盘饮食与运动安排。
+        </div>
+      </aside>
     </section>
   </main>
 </template>
@@ -1100,12 +1172,413 @@ onMounted(async () => {
   font-size: 13px;
 }
 
+.calendar-top-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.metric-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.metric-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.metric-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.metric-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.metric-date {
+  font-size: 20px;
+}
+
+.metric-unit {
+  color: #94a3b8;
+}
+
+.metric-target {
+  margin-left: auto;
+  color: #2563eb;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.metric-muted {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.metric-bar {
+  margin-top: 10px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.metric-bar-inner {
+  height: 100%;
+  border-radius: 999px;
+  background: #2563eb;
+}
+
+.calendar-layout {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 12px;
+}
+
+.calendar-main {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.calendar-head h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #0f172a;
+}
+
+.calendar-date-input {
+  width: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.legend {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+}
+
+.legend.green {
+  color: #059669;
+  background: #ecfdf5;
+}
+
+.legend.yellow {
+  color: #b45309;
+  background: #fefce8;
+}
+
+.legend.red {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+.legend.gray {
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.calendar-weekdays span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.calendar-grid-new {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.calendar-cell {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  min-height: 76px;
+  background: #ffffff;
+  text-align: left;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.calendar-cell.selected {
+  outline: 2px solid #3b82f6;
+}
+
+.status-green {
+  background: #ecfdf5;
+  border-top: 4px solid #10b981;
+}
+
+.status-yellow {
+  background: #fffbeb;
+  border-top: 4px solid #f59e0b;
+}
+
+.status-red {
+  background: #fef2f2;
+  border-top: 4px solid #ef4444;
+}
+
+.status-gray {
+  background: #f8fafc;
+  border-top: 4px solid #e2e8f0;
+}
+
+.day-number {
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.day-deficit {
+  font-size: 10px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.calendar-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.record-card {
+  border-radius: 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 14px;
+}
+
+.record-card h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.record-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.record-stats {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.record-stats > div {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.record-stats small {
+  display: block;
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+.record-stats strong {
+  font-size: 15px;
+}
+
+.quick-add {
+  margin-top: 10px;
+}
+
+.quick-add label {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.quick-btns {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.quick-pill {
+  width: auto;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: #e2e8f0;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 10px;
+}
+
+.entry-list {
+  margin-top: 10px;
+}
+
+.entry-list h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.entry-row {
+  display: grid;
+  grid-template-columns: 1fr 84px 40px;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.entry-row select,
+.entry-row input,
+.weight-row input,
+.record-card textarea {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 7px 8px;
+}
+
+.entry-row select {
+  min-width: 0;
+}
+
+.danger-btn {
+  border: none;
+  border-radius: 8px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.sub-btn {
+  margin-top: 4px;
+  width: auto;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: #334155;
+  color: #ffffff;
+}
+
+.weight-box {
+  margin-top: 10px;
+}
+
+.weight-box label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.weight-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.weight-row .sub-btn {
+  margin: 0;
+}
+
+.preview-box {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.record-card textarea {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.save-btn {
+  margin-top: 8px;
+  border: none;
+  width: 100%;
+  border-radius: 10px;
+  padding: 10px;
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.save-btn:disabled {
+  background: #64748b;
+}
+
+.tip-card,
+.warn-card {
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.tip-card {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.warn-card {
+  background: #fefce8;
+  color: #a16207;
+}
+
+.warn-card.red {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
 @media (max-width: 900px) {
   .wizard-grid-two,
   .wizard-grid-three,
   .activity-grid,
   .kpi-grid,
-  .predict-box {
+  .predict-box,
+  .calendar-top-metrics,
+  .calendar-layout,
+  .calendar-grid-new,
+  .calendar-weekdays,
+  .record-stats {
     grid-template-columns: 1fr;
   }
 
