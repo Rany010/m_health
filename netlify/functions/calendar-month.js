@@ -6,10 +6,20 @@ import { badRequest, ok, serverError } from "./_lib/response.js";
 function monthRange(year, month) {
   const first = new Date(Date.UTC(year, month - 1, 1));
   const last = new Date(Date.UTC(year, month, 0));
+  const today = new Date();
+  const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const cappedLast = last.getTime() > todayUtc.getTime() ? todayUtc : last;
+  if (first.getTime() > cappedLast.getTime()) {
+    return {
+      start: first.toISOString().slice(0, 10),
+      end: cappedLast.toISOString().slice(0, 10),
+      totalDays: 0
+    };
+  }
   return {
     start: first.toISOString().slice(0, 10),
-    end: last.toISOString().slice(0, 10),
-    totalDays: last.getUTCDate()
+    end: cappedLast.toISOString().slice(0, 10),
+    totalDays: cappedLast.getUTCDate()
   };
 }
 
@@ -59,8 +69,11 @@ export async function handler(event) {
     );
 
     const statusByDate = {};
+    const deficitByDate = {};
     for (const row of monthLogs.rows) {
-      statusByDate[String(row.log_date).slice(0, 10)] = row.status;
+      const dateKey = String(row.log_date).slice(0, 10);
+      statusByDate[dateKey] = row.status;
+      deficitByDate[dateKey] = Number(row.deficit ?? 0);
     }
     const days = [];
     for (let i = 1; i <= range.totalDays; i += 1) {
@@ -69,7 +82,8 @@ export async function handler(event) {
         .padStart(2, "0")}-${i.toString().padStart(2, "0")}`;
       days.push({
         date,
-        status: statusByDate[date] ?? "gray"
+        status: statusByDate[date] ?? "gray",
+        deficit: deficitByDate[date] ?? 0
       });
     }
 

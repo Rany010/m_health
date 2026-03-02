@@ -1,5 +1,6 @@
 import { requireAuth } from "./_lib/auth.js";
 import { classifyDailyStatus } from "./_lib/calc.js";
+import { EXERCISE_PRESETS, FOOD_PRESETS } from "./_lib/presets.js";
 import { transaction } from "./_lib/db.js";
 import { getPlanByIdAndUser } from "./_lib/domain.js";
 import { parseJsonBody } from "./_lib/request.js";
@@ -15,6 +16,110 @@ function toKcal(value) {
 
 function validateDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ""));
+}
+
+function toOptionalId(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const n = Number(value);
+  return Number.isInteger(n) ? n : null;
+}
+
+function buildFoodPresetMap() {
+  const map = new Map();
+  for (const item of FOOD_PRESETS) {
+    map.set(item.food_name, Number(item.kcal_per_100g));
+  }
+  return map;
+}
+
+function buildExercisePresetMap() {
+  const map = new Map();
+  for (const item of EXERCISE_PRESETS) {
+    map.set(item.exercise_type, Number(item.kcal_per_min));
+  }
+  return map;
+}
+
+function resolveFoodKcal(food, oldFoodById, foodPresetMap) {
+  const foodId = toOptionalId(food.id);
+  const foodName = String(food.food_name ?? "未知食物").slice(0, 80);
+  const portion = String(food.portion ?? "1份").slice(0, 20);
+  const weightRaw = Number(food.weight_g);
+  const weightG = Number.isFinite(weightRaw) ? Math.max(0, Math.round(weightRaw)) : null;
+  const oldFood = foodId ? oldFoodById.get(foodId) : null;
+  const unchanged =
+    oldFood &&
+    oldFood.food_name === foodName &&
+    Number(oldFood.weight_g ?? 0) === Number(weightG ?? 0);
+
+  if (unchanged) {
+    return {
+      id: foodId,
+      food_name: foodName,
+      portion,
+      weight_g: weightG,
+      kcal: toKcal(oldFood.kcal)
+    };
+  }
+
+  const kcalPer100g = foodPresetMap.get(foodName);
+  if (!Number.isFinite(kcalPer100g)) {
+    throw new Error(`未知食物: ${foodName}`);
+  }
+  const kcal = Math.round((kcalPer100g * Number(weightG ?? 0)) / 100);
+  return {
+    id: foodId,
+    food_name: foodName,
+    portion,
+    weight_g: weightG,
+    kcal
+  };
+}
+
+function resolveExerciseKcal(exercise, oldExerciseById, exercisePresetMap) {
+  const exerciseId = toOptionalId(exercise.id);
+  const exerciseType = String(exercise.exercise_type ?? "").slice(0, 80);
+  const durationMin = toKcal(exercise.duration_min);
+  const manualKcal = Boolean(exercise.manual_kcal);
+  const providedKcal = toKcal(exercise.kcal);
+  const oldExercise = exerciseId ? oldExerciseById.get(exerciseId) : null;
+  const unchanged =
+    !manualKcal &&
+    oldExercise &&
+    oldExercise.exercise_type === exerciseType &&
+    Number(oldExercise.duration_min ?? 0) === Number(durationMin ?? 0);
+
+  if (unchanged) {
+    return {
+      id: exerciseId,
+      exercise_type: exerciseType,
+      duration_min: durationMin,
+      kcal: toKcal(oldExercise.kcal)
+    };
+  }
+
+  if (!exerciseType || manualKcal) {
+    return {
+      id: exerciseId,
+      exercise_type: exerciseType,
+      duration_min: durationMin,
+      kcal: providedKcal
+    };
+  }
+
+  const kcalPerMin = exercisePresetMap.get(exerciseType);
+  if (!Number.isFinite(kcalPerMin)) {
+    throw new Error(`未知运动类型: ${exerciseType}`);
+  }
+  const kcal = Math.round(kcalPerMin * durationMin);
+  return {
+    id: exerciseId,
+    exercise_type: exerciseType,
+    duration_min: durationMin,
+    kcal
+  };
 }
 
 export async function handler(event) {
@@ -43,12 +148,45 @@ export async function handler(event) {
       return badRequest("计划不存在或无访问权限");
     }
 
-    const intakeKcal = foods.reduce((sum, item) => sum + toKcal(item.kcal), 0);
-    const exerciseKcal = exercises.reduce((sum, item) => sum + toKcal(item.kcal), 0);
-    const deficit = Number(plan.tdee) - intakeKcal + exerciseKcal;
-    const status = classifyDailyStatus(deficit, Number(plan.daily_deficit_target));
-
     const output = await transaction(async (client) => {
+      const oldFoodsRes = await client.query(
+        `
+          SELECT id, food_name, weight_g, kcal
+          FROM food_items
+          WHERE daily_log_id IN (
+            SELECT id FROM daily_logs WHERE plan_id = $1 AND log_date = $2
+          )
+        `,
+        [planId, logDate]
+      );
+      const oldExercisesRes = await client.query(
+        `
+          SELECT id, exercise_type, duration_min, kcal
+          FROM exercise_items
+          WHERE daily_log_id IN (
+            SELECT id FROM daily_logs WHERE plan_id = $1 AND log_date = $2
+          )
+        `,
+        [planId, logDate]
+      );
+      const oldFoodById = new Map(oldFoodsRes.rows.map((item) => [Number(item.id), item]));
+      const oldExerciseById = new Map(oldExercisesRes.rows.map((item) => [Number(item.id), item]));
+      const foodPresetMap = buildFoodPresetMap();
+      const exercisePresetMap = buildExercisePresetMap();
+      const normalizedFoods = foods.map((item) =>
+        resolveFoodKcal(item, oldFoodById, foodPresetMap)
+      );
+      const normalizedExercises = exercises.map((item) =>
+        resolveExerciseKcal(item, oldExerciseById, exercisePresetMap)
+      );
+      const effectiveExercises = normalizedExercises.filter(
+        (item) => item.exercise_type || item.duration_min > 0 || item.kcal > 0
+      );
+      const intakeKcal = normalizedFoods.reduce((sum, item) => sum + item.kcal, 0);
+      const exerciseKcal = effectiveExercises.reduce((sum, item) => sum + item.kcal, 0);
+      const deficit = Number(plan.tdee) - intakeKcal + exerciseKcal;
+      const status = classifyDailyStatus(deficit, Number(plan.daily_deficit_target));
+
       const upsert = await client.query(
         `
           INSERT INTO daily_logs (plan_id, log_date, intake_kcal, exercise_kcal, deficit, status, note, updated_at)
@@ -69,7 +207,7 @@ export async function handler(event) {
       await client.query(`DELETE FROM food_items WHERE daily_log_id = $1`, [dailyLog.id]);
       await client.query(`DELETE FROM exercise_items WHERE daily_log_id = $1`, [dailyLog.id]);
 
-      for (const food of foods) {
+      for (const food of normalizedFoods) {
         await client.query(
           `
             INSERT INTO food_items (daily_log_id, food_name, portion, weight_g, kcal)
@@ -77,14 +215,14 @@ export async function handler(event) {
           `,
           [
             dailyLog.id,
-            String(food.food_name ?? "未知食物").slice(0, 80),
-            String(food.portion ?? "1份").slice(0, 20),
-            food.weight_g ? toKcal(food.weight_g) : null,
+            food.food_name,
+            food.portion,
+            food.weight_g === null ? null : toKcal(food.weight_g),
             toKcal(food.kcal)
           ]
         );
       }
-      for (const ex of exercises) {
+      for (const ex of effectiveExercises) {
         await client.query(
           `
             INSERT INTO exercise_items (daily_log_id, exercise_type, duration_min, kcal)
@@ -92,7 +230,7 @@ export async function handler(event) {
           `,
           [
             dailyLog.id,
-            String(ex.exercise_type ?? "运动").slice(0, 80),
+            ex.exercise_type,
             toKcal(ex.duration_min),
             toKcal(ex.kcal)
           ]
@@ -105,6 +243,9 @@ export async function handler(event) {
       daily_log: output
     });
   } catch (error) {
+    if (String(error.message).startsWith("未知食物") || String(error.message).startsWith("未知运动类型")) {
+      return badRequest(error.message);
+    }
     return serverError(error.message);
   }
 }

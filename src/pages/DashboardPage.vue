@@ -12,7 +12,8 @@ const saving = ref(false);
 const plan = ref(null);
 const forecast = ref(null);
 const presets = ref({ foods: [], exercises: [] });
-const selectedDate = ref(new Date().toISOString().slice(0, 10));
+const todayDate = new Date().toISOString().slice(0, 10);
+const selectedDate = ref(todayDate);
 const calendarDays = ref([]);
 const streakDays = ref(0);
 const weekSuccessRate = ref(0);
@@ -69,6 +70,11 @@ const selectedActivityFactor = computed(() => {
   const found = activityLevelOptions.find((item) => item.key === planForm.value.activity_type);
   return found ? found.factor : 1.2;
 });
+const averageExerciseKcal = computed(() =>
+  Math.round(
+    (Number(planForm.value.exercise_freq) * Number(planForm.value.exercise_duration) * 8) / 7
+  )
+);
 const calculatedBmr = computed(() => {
   const base =
     10 * Number(planForm.value.current_weight) +
@@ -76,22 +82,26 @@ const calculatedBmr = computed(() => {
     5 * Number(planForm.value.age);
   return Math.round(planForm.value.sex === "male" ? base + 5 : base - 161);
 });
-const calculatedTdee = computed(() => Math.round(calculatedBmr.value * selectedActivityFactor.value));
-const recommendedDeficit = computed(() => {
-  const dynamic = 350 + Math.round((Number(planForm.value.exercise_freq) * Number(planForm.value.exercise_duration)) / 12);
-  return Math.min(Math.max(dynamic, 350), 800);
-});
-const dailyIntakeTarget = computed(() => Math.max(calculatedTdee.value - recommendedDeficit.value, 1000));
-const weeklyLossKg = computed(() => (recommendedDeficit.value * 7 / 7700).toFixed(2));
-const planDays = computed(() => {
-  const lossNeeded = Math.max(Number(planForm.value.current_weight) - Number(planForm.value.target_weight), 0);
-  const weekly = Math.max(Number(weeklyLossKg.value), 0.1);
-  return Math.max(Math.ceil((lossNeeded / weekly) * 7), 7);
-});
-const isTooFast = computed(() => Number(weeklyLossKg.value) > 1.0);
-const isBeyondExpectedWeeks = computed(
-  () => Math.ceil(planDays.value / 7) > Number(planForm.value.expected_weeks)
+const calculatedTdee = computed(() =>
+  Math.round(calculatedBmr.value * selectedActivityFactor.value + averageExerciseKcal.value)
 );
+const planDays = computed(() => Math.max(Number(planForm.value.expected_weeks) * 7, 7));
+const recommendedDeficit = computed(() => {
+  const weightDiff = Math.max(
+    0,
+    Number(planForm.value.current_weight) - Number(planForm.value.target_weight)
+  );
+  if (weightDiff <= 0) return 300;
+  const deficit = Math.round((weightDiff * 7700) / Math.max(1, Number(planDays.value)));
+  if (deficit < 300) return 300;
+  if (deficit > 900) return 900;
+  return deficit;
+});
+const dailyIntakeFloor = computed(() => (planForm.value.sex === "male" ? 1200 : 1000));
+const dailyIntakeRaw = computed(() => calculatedTdee.value - recommendedDeficit.value);
+const dailyIntakeTarget = computed(() => Math.max(dailyIntakeRaw.value, dailyIntakeFloor.value));
+const weeklyLossKg = computed(() => (recommendedDeficit.value * 7 / 7700).toFixed(2));
+const isTooFast = computed(() => Number(weeklyLossKg.value) > 1.0);
 const planEndDate = computed(() => {
   const end = new Date(planForm.value.start_date);
   end.setDate(end.getDate() + planDays.value);
@@ -118,10 +128,10 @@ const forecastDateLabel = computed(() => forecast.value?.estimated_finish_date |
 const currentWeightNum = computed(() => Number(plan.value?.latest_weight ?? plan.value?.start_weight ?? 0));
 const targetWeightNum = computed(() => Number(plan.value?.target_weight ?? 0));
 const intakeTotal = computed(() =>
-  currentLog.value.foods.reduce((sum, item) => sum + computeFoodKcal(item), 0)
+  currentLog.value.foods.reduce((sum, item) => sum + toNonNegativeInt(item.kcal), 0)
 );
 const exerciseTotal = computed(() =>
-  currentLog.value.exercises.reduce((sum, item) => sum + computeExerciseKcal(item), 0)
+  currentLog.value.exercises.reduce((sum, item) => sum + toNonNegativeInt(item.kcal), 0)
 );
 const previewDeficit = computed(() => {
   const tdee = Number(plan.value?.tdee ?? 0);
@@ -169,22 +179,65 @@ function todayMonthParams() {
   };
 }
 
+function toNonNegativeInt(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n);
+}
+
 function computeFoodKcal(item) {
   const preset = presets.value.foods.find((f) => f.food_name === item.food_name);
   if (!preset) return 0;
-  const grams = Number(item.weight_g ?? 100);
+  const grams = toNonNegativeInt(item.weight_g ?? 100);
   return Math.round((Number(preset.kcal_per_100g) * grams) / 100);
 }
 
 function computeExerciseKcal(item) {
   const preset = presets.value.exercises.find((e) => e.exercise_type === item.exercise_type);
   if (!preset) return 0;
-  return Math.round(Number(preset.kcal_per_min) * Number(item.duration_min ?? 0));
+  return Math.round(Number(preset.kcal_per_min) * toNonNegativeInt(item.duration_min ?? 0));
+}
+
+function isExerciseManualKcal(exerciseType, durationMin, kcal) {
+  if (!exerciseType) return true;
+  const expected = computeExerciseKcal({ exercise_type: exerciseType, duration_min: durationMin });
+  return expected !== toNonNegativeInt(kcal);
+}
+
+function syncFoodKcal(item) {
+  item.kcal = computeFoodKcal(item);
+}
+
+function syncExerciseKcal(item) {
+  if (item.manual_kcal) return;
+  item.kcal = computeExerciseKcal(item);
+}
+
+function onExerciseTypeChange(item) {
+  if (!item.exercise_type) {
+    item.manual_kcal = true;
+    item.duration_min = 0;
+    item.kcal = 0;
+    return;
+  }
+  item.manual_kcal = false;
+  item.kcal = computeExerciseKcal(item);
+}
+
+function onExerciseDurationInput(item) {
+  item.duration_min = toNonNegativeInt(item.duration_min ?? 0);
+  syncExerciseKcal(item);
+}
+
+function onExerciseKcalInput(item) {
+  item.manual_kcal = true;
+  item.kcal = toNonNegativeInt(item.kcal ?? 0);
 }
 
 function newFoodRow() {
   const first = presets.value.foods[0];
   return {
+    id: null,
     food_name: first?.food_name ?? "",
     portion: "1份",
     weight_g: 100,
@@ -193,11 +246,12 @@ function newFoodRow() {
 }
 
 function newExerciseRow() {
-  const first = presets.value.exercises[0];
   return {
-    exercise_type: first?.exercise_type ?? "",
-    duration_min: 20,
-    kcal: first ? Math.round(first.kcal_per_min * 20) : 0
+    id: null,
+    exercise_type: "",
+    duration_min: 0,
+    kcal: 0,
+    manual_kcal: true
   };
 }
 
@@ -251,18 +305,27 @@ async function loadDailyLog() {
     currentLog.value = { foods: [newFoodRow()], exercises: [newExerciseRow()], note: "" };
     return;
   }
+  const foods = payload.foods.map((f) => ({
+    id: f.id,
+    food_name: f.food_name,
+    portion: f.portion,
+    weight_g: toNonNegativeInt(f.weight_g ?? 100),
+    kcal: toNonNegativeInt(f.kcal)
+  }));
+  const exercises = payload.exercises.map((e) => ({
+    id: e.id,
+    exercise_type: String(e.exercise_type ?? ""),
+    duration_min: toNonNegativeInt(e.duration_min),
+    kcal: toNonNegativeInt(e.kcal),
+    manual_kcal: isExerciseManualKcal(
+      String(e.exercise_type ?? ""),
+      toNonNegativeInt(e.duration_min),
+      toNonNegativeInt(e.kcal)
+    )
+  }));
   currentLog.value = {
-    foods: payload.foods.map((f) => ({
-      food_name: f.food_name,
-      portion: f.portion,
-      weight_g: f.weight_g ?? 100,
-      kcal: f.kcal
-    })),
-    exercises: payload.exercises.map((e) => ({
-      exercise_type: e.exercise_type,
-      duration_min: e.duration_min,
-      kcal: e.kcal
-    })),
+    foods: foods.length > 0 ? foods : [newFoodRow()],
+    exercises: exercises.length > 0 ? exercises : [newExerciseRow()],
     note: payload.daily_log.note ?? ""
   };
 }
@@ -276,12 +339,6 @@ async function createPlan() {
   errorText.value = "";
   successText.value = "";
   try {
-    const avgExerciseKcal = Math.round(
-      (Number(planForm.value.exercise_freq) *
-        Number(planForm.value.exercise_duration) *
-        8) /
-        7
-    );
     await apiRequest("/plan-create", {
       method: "POST",
       body: JSON.stringify({
@@ -292,7 +349,7 @@ async function createPlan() {
         target_weight: Number(planForm.value.target_weight),
         desired_days: Number(planDays.value),
         activity_type: planForm.value.activity_type,
-        average_exercise_kcal: avgExerciseKcal,
+        average_exercise_kcal: Number(averageExerciseKcal.value),
         start_date: planForm.value.start_date
       })
     });
@@ -315,13 +372,20 @@ async function saveDailyLog() {
   successText.value = "";
   try {
     const foods = currentLog.value.foods.map((f) => ({
-      ...f,
-      kcal: computeFoodKcal(f)
+      id: f.id ?? null,
+      food_name: String(f.food_name ?? ""),
+      portion: String(f.portion ?? "1份"),
+      weight_g: toNonNegativeInt(f.weight_g ?? 0),
+      kcal: toNonNegativeInt(f.kcal)
     }));
     const exercises = currentLog.value.exercises.map((e) => ({
-      ...e,
-      kcal: computeExerciseKcal(e)
-    }));
+      id: e.id ?? null,
+      exercise_type: String(e.exercise_type ?? ""),
+      duration_min: toNonNegativeInt(e.duration_min ?? 0),
+      kcal: toNonNegativeInt(e.kcal),
+      manual_kcal: Boolean(e.manual_kcal)
+    }))
+      .filter((e) => e.exercise_type || e.duration_min > 0 || e.kcal > 0);
     await apiRequest("/daily-log-upsert", {
       method: "POST",
       body: JSON.stringify({
@@ -372,6 +436,7 @@ function addFood() {
 
 function addQuickFood(foodPreset) {
   currentLog.value.foods.push({
+    id: null,
     food_name: foodPreset.food_name,
     portion: "1份",
     weight_g: 100,
@@ -430,7 +495,11 @@ async function logout() {
 
 watch(
   selectedDate,
-  async () => {
+  async (nextDate) => {
+    if (String(nextDate ?? "") > todayDate) {
+      selectedDate.value = todayDate;
+      return;
+    }
     if (!plan.value) return;
     await loadCalendar();
     await loadDailyLog();
@@ -680,16 +749,12 @@ onMounted(async () => {
           </div>
         </div>
 
-        <p v-if="dailyIntakeTarget < 1200" class="warn-line">
-          建议摄入低于 1200kcal，可能存在代谢风险，建议放缓目标速度。
+        <p v-if="dailyIntakeRaw < dailyIntakeFloor" class="warn-line">
+          按当前目标推算摄入低于 {{ dailyIntakeFloor }}kcal，已按安全下限修正，建议放缓目标速度。
         </p>
         <p v-if="isTooFast" class="warn-line">
           当前预计每周降重超过 1.0kg，减重速度偏快，建议延长周期。
         </p>
-        <p v-if="isBeyondExpectedWeeks" class="muted-line">
-          预计 {{ Math.ceil(planDays / 7) }} 周达标，超过你设置的 {{ planForm.expected_weeks }} 周。
-        </p>
-
         <div class="wizard-actions between">
           <button type="button" class="ghost-btn" @click="prevPlanStep">重新配置</button>
           <button type="button" class="primary-btn" :disabled="creatingPlan || !canActivatePlan" @click="createPlan">
@@ -731,7 +796,7 @@ onMounted(async () => {
       <div class="calendar-main">
         <div class="calendar-head">
           <h2>{{ monthLabel }}</h2>
-          <input v-model="selectedDate" type="date" class="calendar-date-input" />
+          <input v-model="selectedDate" type="date" class="calendar-date-input" :max="todayDate" />
         </div>
         <div class="calendar-legend">
           <span class="legend green">Green: 达标</span>
@@ -791,12 +856,13 @@ onMounted(async () => {
           <div class="entry-list">
             <h4>食物记录</h4>
             <div v-for="(food, index) in currentLog.foods" :key="`food-${index}`" class="entry-row">
-              <select v-model="food.food_name">
+              <select v-model="food.food_name" @change="syncFoodKcal(food)">
                 <option v-for="item in presets.foods" :key="item.food_name" :value="item.food_name">
                   {{ item.food_name }}
                 </option>
               </select>
-              <input v-model.number="food.weight_g" type="number" min="10" max="1000" />
+              <input v-model.number="food.weight_g" type="number" min="10" max="1000" @input="syncFoodKcal(food)" />
+              <span class="entry-kcal">{{ toNonNegativeInt(food.kcal) }} kcal</span>
               <button type="button" class="danger-btn" @click="removeFood(index)">删</button>
             </div>
             <button type="button" class="sub-btn" @click="addFood">+ 添加食物</button>
@@ -805,12 +871,26 @@ onMounted(async () => {
           <div class="entry-list">
             <h4>运动记录</h4>
             <div v-for="(exercise, index) in currentLog.exercises" :key="`exercise-${index}`" class="entry-row">
-              <select v-model="exercise.exercise_type">
+              <select v-model="exercise.exercise_type" @change="onExerciseTypeChange(exercise)">
+                <option value="">无</option>
                 <option v-for="item in presets.exercises" :key="item.exercise_type" :value="item.exercise_type">
                   {{ item.exercise_type }}
                 </option>
               </select>
-              <input v-model.number="exercise.duration_min" type="number" min="0" max="240" />
+              <input
+                v-model.number="exercise.duration_min"
+                type="number"
+                min="0"
+                max="240"
+                @input="onExerciseDurationInput(exercise)"
+              />
+              <input
+                v-model.number="exercise.kcal"
+                type="number"
+                min="0"
+                max="2000"
+                @input="onExerciseKcalInput(exercise)"
+              />
               <button type="button" class="danger-btn" @click="removeExercise(index)">删</button>
             </div>
             <button type="button" class="sub-btn" @click="addExercise">+ 添加运动</button>
@@ -1462,7 +1542,7 @@ onMounted(async () => {
 
 .entry-row {
   display: grid;
-  grid-template-columns: 1fr 84px 40px;
+  grid-template-columns: 1fr 88px 88px 40px;
   gap: 6px;
   margin-bottom: 6px;
 }
@@ -1480,6 +1560,20 @@ onMounted(async () => {
 
 .entry-row select {
   min-width: 0;
+  color-scheme: dark;
+}
+
+.record-card select option {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.entry-kcal {
+  align-self: center;
+  text-align: right;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .danger-btn {
