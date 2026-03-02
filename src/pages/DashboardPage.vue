@@ -695,7 +695,6 @@ onMounted(async () => {
       </div>
     </section>
     <p v-if="errorText" class="error header-feedback">{{ errorText }}</p>
-    <p v-if="successText" class="success header-feedback">{{ successText }}</p>
 
     <section v-if="initializing" class="loading-card">
       <p class="muted">正在加载数据...</p>
@@ -768,7 +767,7 @@ onMounted(async () => {
             </div>
             <div class="field-stack">
               <label>计划开始日期</label>
-              <input v-model="planForm.start_date" type="date" />
+              <input v-model="planForm.start_date" type="date" :max="todayDate" />
             </div>
           </div>
         </div>

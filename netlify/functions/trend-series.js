@@ -39,13 +39,34 @@ export async function handler(event) {
       return badRequest("计划不存在或无访问权限");
     }
 
-    const startDate = toDateKey(plan.start_date);
+    let startDate = toDateKey(plan.start_date);
     const endDate = endDateInput || new Date().toISOString().slice(0, 10);
     if (!validateDate(startDate) || !validateDate(endDate)) {
       return badRequest("日期参数无效");
     }
+
+    const firstDataDateRes = await query(
+      `
+        SELECT MIN(log_date)::date AS first_data_date
+        FROM (
+          SELECT log_date FROM daily_logs WHERE plan_id = $1
+          UNION ALL
+          SELECT log_date FROM weight_logs WHERE plan_id = $1
+        ) t
+      `,
+      [planId]
+    );
+    const firstDataDate = toDateKey(firstDataDateRes.rows[0]?.first_data_date);
+
+    if (validateDate(firstDataDate) && firstDataDate < startDate) {
+      startDate = firstDataDate;
+    }
     if (startDate > endDate) {
-      return ok({ days: [] });
+      if (validateDate(firstDataDate) && firstDataDate <= endDate) {
+        startDate = firstDataDate;
+      } else {
+        startDate = endDate;
+      }
     }
 
     const { rows } = await query(

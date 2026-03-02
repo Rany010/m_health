@@ -19,6 +19,10 @@ function parsePositiveNumber(value) {
   return n;
 }
 
+function validateDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ""));
+}
+
 export async function handler(event) {
   if (event.httpMethod !== "POST") {
     return badRequest("不支持的请求方法");
@@ -43,9 +47,16 @@ export async function handler(event) {
     const averageExerciseKcal = parsePositiveNumber(body.average_exercise_kcal) ?? 0;
     const activityType = String(body.activity_type ?? "sedentary");
     const startDate = String(body.start_date ?? new Date().toISOString().slice(0, 10));
+    const today = new Date().toISOString().slice(0, 10);
 
     if (!age || !heightCm || !currentWeight || !targetWeight) {
       return badRequest("缺少必要参数");
+    }
+    if (!validateDate(startDate)) {
+      return badRequest("开始日期格式无效");
+    }
+    if (startDate > today) {
+      return badRequest("计划开始日期不能晚于今天");
     }
     if (targetWeight >= currentWeight) {
       return badRequest("目标体重必须低于当前体重");
