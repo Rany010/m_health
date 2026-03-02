@@ -1001,11 +1001,11 @@ onMounted(async () => {
           <section class="record-section">
             <div class="record-stats">
               <div>
-                <small>Intake</small>
+                <small>摄入</small>
                 <strong>{{ intakeTotal }} kcal</strong>
               </div>
               <div>
-                <small>Exercise</small>
+                <small>运动消耗</small>
                 <strong>-{{ exerciseTotal }} kcal</strong>
               </div>
             </div>
@@ -1066,7 +1066,7 @@ onMounted(async () => {
 
           <section class="record-section">
             <div class="weight-box">
-              <label>Update Weight (kg)</label>
+              <label>更新体重 (kg)</label>
               <div class="weight-row">
                 <input v-model.number="plan.latest_weight" type="number" min="20" max="250" step="0.1" />
                 <button type="button" class="sub-btn" :disabled="saving" @click="saveWeight">保存体重</button>
