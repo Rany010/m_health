@@ -1,24 +1,34 @@
 import { Pool } from "pg";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is required");
+let pool = null;
+
+function createPoolFromEnv() {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL is required");
+  }
+  return new Pool({
+    connectionString: databaseUrl,
+    max: 10,
+    idleTimeoutMillis: 10_000,
+    ssl:
+      databaseUrl.includes("localhost") || databaseUrl.includes("127.0.0.1")
+        ? false
+        : { rejectUnauthorized: false }
+  });
 }
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 10,
-  idleTimeoutMillis: 10_000,
-  ssl:
-    process.env.DATABASE_URL.includes("localhost") ||
-    process.env.DATABASE_URL.includes("127.0.0.1")
-      ? false
-      : { rejectUnauthorized: false }
-});
+function getPool() {
+  if (!pool) {
+    pool = createPoolFromEnv();
+  }
+  return pool;
+}
 
 let schemaReadyPromise = null;
 
 async function runSchemaMigrations() {
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query("BEGIN");
     await client.query(`
@@ -154,12 +164,12 @@ export async function ensureSchemaReady() {
 
 export async function query(text, values = []) {
   await ensureSchemaReady();
-  return pool.query(text, values);
+  return getPool().query(text, values);
 }
 
 export async function transaction(callback) {
   await ensureSchemaReady();
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query("BEGIN");
     const result = await callback(client);
