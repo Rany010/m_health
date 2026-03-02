@@ -70,7 +70,6 @@ const mealGroups = [
   { key: "lunch", label: "午餐" },
   { key: "dinner", label: "晚餐" }
 ];
-const quickAddMealType = ref("breakfast");
 
 const planProgress = computed(() => {
   if (!plan.value) return 0;
@@ -150,7 +149,7 @@ const previewDeficit = computed(() => {
   const tdee = Number(plan.value?.tdee ?? 0);
   return tdee - intakeTotal.value + exerciseTotal.value;
 });
-const quickFoods = computed(() => presets.value.foods.slice(0, 6));
+const previewWeightChangeLabel = computed(() => deficitChangeLabel(previewDeficit.value));
 const selectedCalendarDay = computed(() => {
   const selected = calendarDays.value.find((day) => day.date === selectedDate.value);
   return selected || null;
@@ -199,6 +198,18 @@ function normalizeMealType(value) {
   return "breakfast";
 }
 
+function deficitChangeLabel(deficitValue) {
+  const deficit = Number(deficitValue);
+  if (!Number.isFinite(deficit) || deficit === 0) {
+    return "持平0g";
+  }
+  const grams = Math.round(Math.abs(deficit) / 7.7);
+  if (grams <= 0) {
+    return "持平0g";
+  }
+  return deficit > 0 ? `减重${grams}g` : `增重${grams}g`;
+}
+
 function toNonNegativeInt(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -212,18 +223,6 @@ function computeFoodKcal(item) {
   return Math.round((Number(preset.kcal_per_100g) * grams) / 100);
 }
 
-function computeExerciseKcal(item) {
-  const preset = presets.value.exercises.find((e) => e.exercise_type === item.exercise_type);
-  if (!preset) return 0;
-  return Math.round(Number(preset.kcal_per_min) * toNonNegativeInt(item.duration_min ?? 0));
-}
-
-function isExerciseManualKcal(exerciseType, durationMin, kcal) {
-  if (!exerciseType) return true;
-  const expected = computeExerciseKcal({ exercise_type: exerciseType, duration_min: durationMin });
-  return expected !== toNonNegativeInt(kcal);
-}
-
 function syncFoodKcal(item) {
   item.kcal = computeFoodKcal(item);
 }
@@ -232,25 +231,12 @@ function foodsByMeal(mealType) {
   return currentLog.value.foods.filter((item) => normalizeMealType(item.meal_type) === mealType);
 }
 
-function syncExerciseKcal(item) {
-  if (item.manual_kcal) return;
-  item.kcal = computeExerciseKcal(item);
-}
-
 function onExerciseTypeChange(item) {
+  item.manual_kcal = true;
+  item.duration_min = 0;
   if (!item.exercise_type) {
-    item.manual_kcal = true;
-    item.duration_min = 0;
     item.kcal = 0;
-    return;
   }
-  item.manual_kcal = false;
-  item.kcal = computeExerciseKcal(item);
-}
-
-function onExerciseDurationInput(item) {
-  item.duration_min = toNonNegativeInt(item.duration_min ?? 0);
-  syncExerciseKcal(item);
 }
 
 function onExerciseKcalInput(item) {
@@ -341,13 +327,9 @@ async function loadDailyLog() {
   const exercises = payload.exercises.map((e) => ({
     id: e.id,
     exercise_type: String(e.exercise_type ?? ""),
-    duration_min: toNonNegativeInt(e.duration_min),
+    duration_min: 0,
     kcal: toNonNegativeInt(e.kcal),
-    manual_kcal: isExerciseManualKcal(
-      String(e.exercise_type ?? ""),
-      toNonNegativeInt(e.duration_min),
-      toNonNegativeInt(e.kcal)
-    )
+    manual_kcal: true
   }));
   currentLog.value = {
     foods: foods.length > 0 ? foods : [newFoodRow()],
@@ -420,7 +402,7 @@ async function saveDailyLog() {
         date: selectedDate.value,
         foods,
         exercises,
-        note: currentLog.value.note
+        note: ""
       })
     });
     successText.value = "当日记录已保存";
@@ -460,17 +442,6 @@ async function saveWeight() {
 
 function addFood(mealType = "breakfast") {
   currentLog.value.foods.push(newFoodRow(mealType));
-}
-
-function addQuickFood(foodPreset, mealType = quickAddMealType.value) {
-  currentLog.value.foods.push({
-    id: null,
-    meal_type: normalizeMealType(mealType),
-    food_name: foodPreset.food_name,
-    portion: "1份",
-    weight_g: 100,
-    kcal: Math.round(Number(foodPreset.kcal_per_100g ?? 0))
-  });
 }
 
 function addExercise() {
@@ -851,7 +822,7 @@ onMounted(async () => {
             @click="selectedDate = day.date"
           >
             <span class="day-number">{{ dayNumberLabel(day.date) }}</span>
-            <span v-if="day.status !== 'gray'" class="day-deficit">{{ day.deficit }} kcal</span>
+            <span v-if="day.status !== 'gray'" class="day-deficit">{{ deficitChangeLabel(day.deficit) }}</span>
           </button>
         </div>
       </div>
@@ -878,32 +849,6 @@ onMounted(async () => {
             <div class="section-head">
               <h4>食物记录</h4>
               <small>按餐次记录，可分多次补录</small>
-            </div>
-            <div class="meal-switch">
-              <button
-                v-for="meal in mealGroups"
-                :key="meal.key"
-                type="button"
-                class="meal-chip"
-                :class="{ active: quickAddMealType === meal.key }"
-                @click="quickAddMealType = meal.key"
-              >
-                {{ meal.label }}
-              </button>
-            </div>
-            <div class="quick-add">
-              <label>快速添加到：{{ mealGroups.find((item) => item.key === quickAddMealType)?.label }}</label>
-              <div class="quick-btns">
-                <button
-                  v-for="food in quickFoods"
-                  :key="food.food_name"
-                  type="button"
-                  class="quick-pill"
-                  @click="addQuickFood(food, quickAddMealType)"
-                >
-                  + {{ food.food_name }}
-                </button>
-              </div>
             </div>
 
             <div v-for="meal in mealGroups" :key="meal.key" class="meal-block">
@@ -932,22 +877,15 @@ onMounted(async () => {
           <section class="record-section">
             <div class="section-head">
               <h4>运动记录</h4>
-              <small>默认无运动，可选类型或手动填写消耗</small>
+              <small>默认无运动，可选类型并填写消耗热量</small>
             </div>
-            <div v-for="(exercise, index) in currentLog.exercises" :key="`exercise-${index}`" class="entry-row">
+            <div v-for="(exercise, index) in currentLog.exercises" :key="`exercise-${index}`" class="entry-row exercise-row">
               <select v-model="exercise.exercise_type" @change="onExerciseTypeChange(exercise)">
                 <option value="">无</option>
                 <option v-for="item in presets.exercises" :key="item.exercise_type" :value="item.exercise_type">
                   {{ item.exercise_type }}
                 </option>
               </select>
-              <input
-                v-model.number="exercise.duration_min"
-                type="number"
-                min="0"
-                max="240"
-                @input="onExerciseDurationInput(exercise)"
-              />
               <input
                 v-model.number="exercise.kcal"
                 type="number"
@@ -971,13 +909,9 @@ onMounted(async () => {
 
             <div class="preview-box">
               当日预估缺口：<strong>{{ previewDeficit }}</strong> kcal
+              <span>；预计{{ previewWeightChangeLabel }}</span>
               <span v-if="selectedCalendarDay">；当前状态：{{ selectedCalendarDay.status }}</span>
             </div>
-          </section>
-
-          <section class="record-section">
-            <label>备注</label>
-            <textarea v-model="currentLog.note" rows="2" placeholder="可选备注"></textarea>
           </section>
 
           <button type="button" class="save-btn" :disabled="saving || loading" @click="saveDailyLog">
@@ -1614,15 +1548,6 @@ onMounted(async () => {
   font-size: 15px;
 }
 
-.quick-add {
-  margin-top: 8px;
-}
-
-.quick-add label {
-  font-size: 11px;
-  color: #94a3b8;
-}
-
 .section-head {
   display: flex;
   align-items: center;
@@ -1639,45 +1564,6 @@ onMounted(async () => {
 .section-head small {
   color: #94a3b8;
   font-size: 11px;
-}
-
-.meal-switch {
-  margin-top: 8px;
-  display: flex;
-  gap: 6px;
-}
-
-.meal-chip {
-  width: auto;
-  border: 1px solid rgba(148, 163, 184, 0.32);
-  background: transparent;
-  color: #cbd5e1;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 11px;
-}
-
-.meal-chip.active {
-  border-color: #38bdf8;
-  background: rgba(14, 165, 233, 0.18);
-  color: #e0f2fe;
-}
-
-.quick-btns {
-  margin-top: 6px;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.quick-pill {
-  width: auto;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: transparent;
-  color: #e2e8f0;
-  border-radius: 999px;
-  padding: 4px 8px;
-  font-size: 10px;
 }
 
 .meal-block {
@@ -1710,21 +1596,15 @@ onMounted(async () => {
   font-size: 11px;
 }
 
-.entry-list {
-  margin-top: 10px;
-}
-
-.entry-list h4 {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: #cbd5e1;
-}
-
 .entry-row {
   display: grid;
   grid-template-columns: 1fr 88px 88px 40px;
   gap: 6px;
   margin-bottom: 6px;
+}
+
+.exercise-row {
+  grid-template-columns: 1fr 96px 32px;
 }
 
 .entry-row select,
@@ -1757,11 +1637,18 @@ onMounted(async () => {
 }
 
 .danger-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #dc2626;
   color: #ffffff;
-  font-size: 12px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .sub-btn {
