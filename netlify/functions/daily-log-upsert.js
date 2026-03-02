@@ -18,6 +18,14 @@ function validateDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ""));
 }
 
+function normalizeMealType(value) {
+  const mealType = String(value ?? "breakfast");
+  if (mealType === "breakfast" || mealType === "lunch" || mealType === "dinner") {
+    return mealType;
+  }
+  return "breakfast";
+}
+
 function toOptionalId(value) {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -44,6 +52,7 @@ function buildExercisePresetMap() {
 
 function resolveFoodKcal(food, oldFoodById, foodPresetMap) {
   const foodId = toOptionalId(food.id);
+  const mealType = normalizeMealType(food.meal_type);
   const foodName = String(food.food_name ?? "未知食物").slice(0, 80);
   const portion = String(food.portion ?? "1份").slice(0, 20);
   const weightRaw = Number(food.weight_g);
@@ -57,6 +66,7 @@ function resolveFoodKcal(food, oldFoodById, foodPresetMap) {
   if (unchanged) {
     return {
       id: foodId,
+      meal_type: mealType,
       food_name: foodName,
       portion,
       weight_g: weightG,
@@ -71,6 +81,7 @@ function resolveFoodKcal(food, oldFoodById, foodPresetMap) {
   const kcal = Math.round((kcalPer100g * Number(weightG ?? 0)) / 100);
   return {
     id: foodId,
+    meal_type: mealType,
     food_name: foodName,
     portion,
     weight_g: weightG,
@@ -151,7 +162,7 @@ export async function handler(event) {
     const output = await transaction(async (client) => {
       const oldFoodsRes = await client.query(
         `
-          SELECT id, food_name, weight_g, kcal
+          SELECT id, meal_type, food_name, weight_g, kcal
           FROM food_items
           WHERE daily_log_id IN (
             SELECT id FROM daily_logs WHERE plan_id = $1 AND log_date = $2
@@ -210,11 +221,12 @@ export async function handler(event) {
       for (const food of normalizedFoods) {
         await client.query(
           `
-            INSERT INTO food_items (daily_log_id, food_name, portion, weight_g, kcal)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO food_items (daily_log_id, meal_type, food_name, portion, weight_g, kcal)
+            VALUES ($1, $2, $3, $4, $5, $6)
           `,
           [
             dailyLog.id,
+            food.meal_type,
             food.food_name,
             food.portion,
             food.weight_g === null ? null : toKcal(food.weight_g),

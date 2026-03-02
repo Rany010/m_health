@@ -123,12 +123,17 @@ async function runSchemaMigrations() {
       CREATE TABLE IF NOT EXISTS food_items (
         id BIGSERIAL PRIMARY KEY,
         daily_log_id BIGINT NOT NULL REFERENCES daily_logs(id) ON DELETE CASCADE,
+        meal_type VARCHAR(20) NOT NULL DEFAULT 'breakfast',
         food_name VARCHAR(80) NOT NULL,
         portion VARCHAR(20) NOT NULL,
         weight_g INT,
         kcal INT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+    `);
+    await client.query(`
+      ALTER TABLE food_items
+      ADD COLUMN IF NOT EXISTS meal_type VARCHAR(20) NOT NULL DEFAULT 'breakfast';
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS exercise_items (

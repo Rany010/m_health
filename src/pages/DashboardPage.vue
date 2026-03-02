@@ -58,6 +58,12 @@ const exerciseTypeOptions = [
   { key: "ball", label: "球类" },
   { key: "hiit", label: "HIIT" }
 ];
+const mealGroups = [
+  { key: "breakfast", label: "早餐" },
+  { key: "lunch", label: "午餐" },
+  { key: "dinner", label: "晚餐" }
+];
+const quickAddMealType = ref("breakfast");
 
 const planProgress = computed(() => {
   if (!plan.value) return 0;
@@ -179,6 +185,13 @@ function todayMonthParams() {
   };
 }
 
+function normalizeMealType(value) {
+  if (value === "breakfast" || value === "lunch" || value === "dinner") {
+    return value;
+  }
+  return "breakfast";
+}
+
 function toNonNegativeInt(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -208,6 +221,10 @@ function syncFoodKcal(item) {
   item.kcal = computeFoodKcal(item);
 }
 
+function foodsByMeal(mealType) {
+  return currentLog.value.foods.filter((item) => normalizeMealType(item.meal_type) === mealType);
+}
+
 function syncExerciseKcal(item) {
   if (item.manual_kcal) return;
   item.kcal = computeExerciseKcal(item);
@@ -234,10 +251,11 @@ function onExerciseKcalInput(item) {
   item.kcal = toNonNegativeInt(item.kcal ?? 0);
 }
 
-function newFoodRow() {
+function newFoodRow(mealType = "breakfast") {
   const first = presets.value.foods[0];
   return {
     id: null,
+    meal_type: normalizeMealType(mealType),
     food_name: first?.food_name ?? "",
     portion: "1份",
     weight_g: 100,
@@ -307,6 +325,7 @@ async function loadDailyLog() {
   }
   const foods = payload.foods.map((f) => ({
     id: f.id,
+    meal_type: normalizeMealType(f.meal_type),
     food_name: f.food_name,
     portion: f.portion,
     weight_g: toNonNegativeInt(f.weight_g ?? 100),
@@ -373,6 +392,7 @@ async function saveDailyLog() {
   try {
     const foods = currentLog.value.foods.map((f) => ({
       id: f.id ?? null,
+      meal_type: normalizeMealType(f.meal_type),
       food_name: String(f.food_name ?? ""),
       portion: String(f.portion ?? "1份"),
       weight_g: toNonNegativeInt(f.weight_g ?? 0),
@@ -430,13 +450,14 @@ async function saveWeight() {
   }
 }
 
-function addFood() {
-  currentLog.value.foods.push(newFoodRow());
+function addFood(mealType = "breakfast") {
+  currentLog.value.foods.push(newFoodRow(mealType));
 }
 
-function addQuickFood(foodPreset) {
+function addQuickFood(foodPreset, mealType = quickAddMealType.value) {
   currentLog.value.foods.push({
     id: null,
+    meal_type: normalizeMealType(mealType),
     food_name: foodPreset.food_name,
     portion: "1份",
     weight_g: 100,
@@ -448,8 +469,11 @@ function addExercise() {
   currentLog.value.exercises.push(newExerciseRow());
 }
 
-function removeFood(index) {
-  currentLog.value.foods.splice(index, 1);
+function removeFood(food) {
+  const index = currentLog.value.foods.indexOf(food);
+  if (index >= 0) {
+    currentLog.value.foods.splice(index, 1);
+  }
 }
 
 function removeExercise(index) {
@@ -827,49 +851,79 @@ onMounted(async () => {
           <h3>{{ selectedDate }}</h3>
           <p class="record-hint">目标缺口 {{ plan.daily_deficit_target }} kcal</p>
 
-          <div class="record-stats">
-            <div>
-              <small>Intake</small>
-              <strong>{{ intakeTotal }} kcal</strong>
+          <section class="record-section">
+            <div class="record-stats">
+              <div>
+                <small>Intake</small>
+                <strong>{{ intakeTotal }} kcal</strong>
+              </div>
+              <div>
+                <small>Exercise</small>
+                <strong>-{{ exerciseTotal }} kcal</strong>
+              </div>
             </div>
-            <div>
-              <small>Exercise</small>
-              <strong>-{{ exerciseTotal }} kcal</strong>
-            </div>
-          </div>
+          </section>
 
-          <div class="quick-add">
-            <label>Quick Food Add</label>
-            <div class="quick-btns">
+          <section class="record-section">
+            <div class="section-head">
+              <h4>食物记录</h4>
+              <small>按餐次记录，可分多次补录</small>
+            </div>
+            <div class="meal-switch">
               <button
-                v-for="food in quickFoods"
-                :key="food.food_name"
+                v-for="meal in mealGroups"
+                :key="meal.key"
                 type="button"
-                class="quick-pill"
-                @click="addQuickFood(food)"
+                class="meal-chip"
+                :class="{ active: quickAddMealType === meal.key }"
+                @click="quickAddMealType = meal.key"
               >
-                + {{ food.food_name }}
+                {{ meal.label }}
               </button>
             </div>
-          </div>
-
-          <div class="entry-list">
-            <h4>食物记录</h4>
-            <div v-for="(food, index) in currentLog.foods" :key="`food-${index}`" class="entry-row">
-              <select v-model="food.food_name" @change="syncFoodKcal(food)">
-                <option v-for="item in presets.foods" :key="item.food_name" :value="item.food_name">
-                  {{ item.food_name }}
-                </option>
-              </select>
-              <input v-model.number="food.weight_g" type="number" min="10" max="1000" @input="syncFoodKcal(food)" />
-              <span class="entry-kcal">{{ toNonNegativeInt(food.kcal) }} kcal</span>
-              <button type="button" class="danger-btn" @click="removeFood(index)">删</button>
+            <div class="quick-add">
+              <label>快速添加到：{{ mealGroups.find((item) => item.key === quickAddMealType)?.label }}</label>
+              <div class="quick-btns">
+                <button
+                  v-for="food in quickFoods"
+                  :key="food.food_name"
+                  type="button"
+                  class="quick-pill"
+                  @click="addQuickFood(food, quickAddMealType)"
+                >
+                  + {{ food.food_name }}
+                </button>
+              </div>
             </div>
-            <button type="button" class="sub-btn" @click="addFood">+ 添加食物</button>
-          </div>
 
-          <div class="entry-list">
-            <h4>运动记录</h4>
+            <div v-for="meal in mealGroups" :key="meal.key" class="meal-block">
+              <div class="meal-head">
+                <h5>{{ meal.label }}</h5>
+                <button type="button" class="sub-btn" @click="addFood(meal.key)">+ 添加</button>
+              </div>
+              <p v-if="foodsByMeal(meal.key).length === 0" class="meal-empty">暂无记录</p>
+              <div
+                v-for="(food, mealIndex) in foodsByMeal(meal.key)"
+                :key="`food-${meal.key}-${food.id ?? 'new'}-${mealIndex}`"
+                class="entry-row"
+              >
+                <select v-model="food.food_name" @change="syncFoodKcal(food)">
+                  <option v-for="item in presets.foods" :key="item.food_name" :value="item.food_name">
+                    {{ item.food_name }}
+                  </option>
+                </select>
+                <input v-model.number="food.weight_g" type="number" min="10" max="1000" @input="syncFoodKcal(food)" />
+                <span class="entry-kcal">{{ toNonNegativeInt(food.kcal) }} kcal</span>
+                <button type="button" class="danger-btn" @click="removeFood(food)">删</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="record-section">
+            <div class="section-head">
+              <h4>运动记录</h4>
+              <small>默认无运动，可选类型或手动填写消耗</small>
+            </div>
             <div v-for="(exercise, index) in currentLog.exercises" :key="`exercise-${index}`" class="entry-row">
               <select v-model="exercise.exercise_type" @change="onExerciseTypeChange(exercise)">
                 <option value="">无</option>
@@ -894,23 +948,28 @@ onMounted(async () => {
               <button type="button" class="danger-btn" @click="removeExercise(index)">删</button>
             </div>
             <button type="button" class="sub-btn" @click="addExercise">+ 添加运动</button>
-          </div>
+          </section>
 
-          <div class="weight-box">
-            <label>Update Weight (kg)</label>
-            <div class="weight-row">
-              <input v-model.number="plan.latest_weight" type="number" min="20" max="250" step="0.1" />
-              <button type="button" class="sub-btn" :disabled="saving" @click="saveWeight">保存体重</button>
+          <section class="record-section">
+            <div class="weight-box">
+              <label>Update Weight (kg)</label>
+              <div class="weight-row">
+                <input v-model.number="plan.latest_weight" type="number" min="20" max="250" step="0.1" />
+                <button type="button" class="sub-btn" :disabled="saving" @click="saveWeight">保存体重</button>
+              </div>
             </div>
-          </div>
 
-          <div class="preview-box">
-            当日预估缺口：<strong>{{ previewDeficit }}</strong> kcal
-            <span v-if="selectedCalendarDay">；当前状态：{{ selectedCalendarDay.status }}</span>
-          </div>
+            <div class="preview-box">
+              当日预估缺口：<strong>{{ previewDeficit }}</strong> kcal
+              <span v-if="selectedCalendarDay">；当前状态：{{ selectedCalendarDay.status }}</span>
+            </div>
+          </section>
 
-          <label>备注</label>
-          <textarea v-model="currentLog.note" rows="2" placeholder="可选备注"></textarea>
+          <section class="record-section">
+            <label>备注</label>
+            <textarea v-model="currentLog.note" rows="2" placeholder="可选备注"></textarea>
+          </section>
+
           <button type="button" class="save-btn" :disabled="saving || loading" @click="saveDailyLog">
             {{ saving ? "保存中..." : "保存当日记录" }}
           </button>
@@ -1470,6 +1529,14 @@ onMounted(async () => {
   padding: 14px;
 }
 
+.record-section {
+  margin-top: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 12px;
+  padding: 10px;
+}
+
 .record-card h3 {
   margin: 0;
   font-size: 20px;
@@ -1482,7 +1549,6 @@ onMounted(async () => {
 }
 
 .record-stats {
-  margin-top: 10px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
@@ -1505,12 +1571,52 @@ onMounted(async () => {
 }
 
 .quick-add {
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .quick-add label {
   font-size: 11px;
   color: #94a3b8;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-head h4 {
+  margin: 0;
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.section-head small {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.meal-switch {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.meal-chip {
+  width: auto;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: transparent;
+  color: #cbd5e1;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.meal-chip.active {
+  border-color: #38bdf8;
+  background: rgba(14, 165, 233, 0.18);
+  color: #e0f2fe;
 }
 
 .quick-btns {
@@ -1528,6 +1634,36 @@ onMounted(async () => {
   border-radius: 999px;
   padding: 4px 8px;
   font-size: 10px;
+}
+
+.meal-block {
+  margin-top: 10px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.meal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.meal-head h5 {
+  margin: 0;
+  font-size: 12px;
+  color: #e2e8f0;
+}
+
+.meal-head .sub-btn {
+  margin: 0;
+}
+
+.meal-empty {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 11px;
 }
 
 .entry-list {
@@ -1596,7 +1732,7 @@ onMounted(async () => {
 }
 
 .weight-box {
-  margin-top: 10px;
+  margin-top: 0;
 }
 
 .weight-box label {

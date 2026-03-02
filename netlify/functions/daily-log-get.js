@@ -40,9 +40,10 @@ export async function handler(event) {
     const dailyLog = rows[0];
     const foods = await query(
       `
-        SELECT id, food_name, portion, weight_g, kcal
+        SELECT id, meal_type, food_name, portion, weight_g, kcal
         FROM food_items
         WHERE daily_log_id = $1
+        ORDER BY id ASC
       `,
       [dailyLog.id]
     );
