@@ -23,9 +23,11 @@ const presets = ref({ foods: [], exercises: [] });
 const todayDate = localDateString();
 const selectedDate = ref(todayDate);
 const calendarDays = ref([]);
+const trendDays = ref([]);
 const streakDays = ref(0);
 const weekSuccessRate = ref(0);
 const currentLog = ref({ foods: [], exercises: [], note: "" });
+const trendTab = ref("weight");
 const creatingPlan = ref(false);
 const planStep = ref(1);
 const planForm = ref({
@@ -70,6 +72,12 @@ const mealGroups = [
   { key: "breakfast", label: "早餐" },
   { key: "lunch", label: "午餐" },
   { key: "dinner", label: "晚餐" }
+];
+const trendTabs = [
+  { key: "weight", label: "体重变化趋势", unit: "kg" },
+  { key: "deficit", label: "缺口趋势", unit: "kcal" },
+  { key: "intake", label: "摄入趋势", unit: "kcal" },
+  { key: "exercise", label: "运动消耗趋势", unit: "kcal" }
 ];
 
 const planProgress = computed(() => {
@@ -170,6 +178,128 @@ const forecastPaused = computed(() => {
   const recent = calendarDays.value.slice(-3);
   return recent.length === 3 && recent.every((day) => day.status === "gray");
 });
+const activeTrendTab = computed(() => trendTabs.find((item) => item.key === trendTab.value) ?? trendTabs[0]);
+const trendDayCount = computed(() => trendDays.value.length);
+const trendChart = computed(() => {
+  const width = 760;
+  const height = 260;
+  const plotLeft = 52;
+  const plotRight = 12;
+  const plotTop = 14;
+  const plotBottom = 34;
+  const plotWidth = width - plotLeft - plotRight;
+  const plotHeight = height - plotTop - plotBottom;
+  const rows = trendDays.value;
+  const tabKey = activeTrendTab.value.key;
+
+  const base = {
+    width,
+    height,
+    plotLeft,
+    plotTop,
+    plotBottom,
+    points: [],
+    segments: [],
+    yTicks: [],
+    xTicks: []
+  };
+  if (!plan.value || rows.length === 0) {
+    return base;
+  }
+
+  const points = [];
+  const values = [];
+  let lastWeight = Number(plan.value.start_weight ?? 0);
+  if (!Number.isFinite(lastWeight)) lastWeight = 0;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    let value = 0;
+    let imputed = false;
+    if (tabKey === "weight") {
+      const measuredWeight = Number(row.weight);
+      if (Number.isFinite(measuredWeight)) {
+        lastWeight = measuredWeight;
+      } else {
+        imputed = true;
+      }
+      value = lastWeight;
+    } else if (tabKey === "deficit") {
+      value = Number(row.deficit ?? 0);
+      if (!Number.isFinite(value)) value = 0;
+    } else if (tabKey === "intake") {
+      value = Number(row.intake_kcal ?? 0);
+      if (!Number.isFinite(value)) value = 0;
+    } else {
+      value = Number(row.exercise_kcal ?? 0);
+      if (!Number.isFinite(value)) value = 0;
+    }
+    values.push(value);
+    points.push({
+      index: i,
+      date: row.date,
+      value,
+      imputed
+    });
+  }
+
+  let minValue = Math.min(...values);
+  let maxValue = Math.max(...values);
+  const range = maxValue - minValue;
+  const pad = tabKey === "weight" ? 0.4 : Math.max(40, Math.round(range * 0.12));
+  if (range < 0.001) {
+    minValue -= pad;
+    maxValue += pad;
+  } else {
+    minValue -= pad;
+    maxValue += pad;
+  }
+
+  const toX = (index) => {
+    if (points.length <= 1) return plotLeft;
+    return plotLeft + (index / (points.length - 1)) * plotWidth;
+  };
+  const toY = (value) => {
+    const ratio = (value - minValue) / (maxValue - minValue);
+    return plotTop + (1 - ratio) * plotHeight;
+  };
+
+  const chartPoints = points.map((item) => ({
+    ...item,
+    x: toX(item.index),
+    y: toY(item.value)
+  }));
+  const segments = [];
+  for (let i = 1; i < chartPoints.length; i += 1) {
+    segments.push({
+      x1: chartPoints[i - 1].x,
+      y1: chartPoints[i - 1].y,
+      x2: chartPoints[i].x,
+      y2: chartPoints[i].y,
+      dashed: tabKey === "weight" && chartPoints[i].imputed
+    });
+  }
+
+  const yTicks = [maxValue, (maxValue + minValue) / 2, minValue].map((value) => ({
+    value,
+    y: toY(value)
+  }));
+  const tickIndexes = points.length === 1 ? [0] : Array.from(new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]));
+  const xTicks = tickIndexes.map((index) => ({
+    index,
+    x: toX(index),
+    label: `第${index + 1}天`,
+    anchor: index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"
+  }));
+
+  return {
+    ...base,
+    points: chartPoints,
+    segments,
+    yTicks,
+    xTicks
+  };
+});
 
 function dayNumberLabel(dateValue) {
   if (!dateValue) return "";
@@ -215,6 +345,13 @@ function toNonNegativeInt(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n);
+}
+
+function formatTrendAxisValue(value) {
+  if (activeTrendTab.value.key === "weight") {
+    return `${Number(value).toFixed(1)} kg`;
+  }
+  return `${Math.round(Number(value))} kcal`;
 }
 
 function computeFoodKcal(item) {
@@ -307,6 +444,17 @@ async function loadForecast() {
   forecast.value = await apiRequest(`/forecast?plan_id=${plan.value.id}`, { method: "GET" });
 }
 
+async function loadTrendSeries() {
+  if (!plan.value) {
+    trendDays.value = [];
+    return;
+  }
+  const payload = await apiRequest(`/trend-series?plan_id=${plan.value.id}&end_date=${todayDate}`, {
+    method: "GET"
+  });
+  trendDays.value = Array.isArray(payload.days) ? payload.days : [];
+}
+
 async function loadDailyLog() {
   if (!plan.value) return;
   const payload = await apiRequest(
@@ -367,6 +515,7 @@ async function createPlan() {
     await loadCalendar();
     await loadForecast();
     await loadDailyLog();
+    await loadTrendSeries();
   } catch (error) {
     errorText.value = error.message;
   } finally {
@@ -410,6 +559,7 @@ async function saveDailyLog() {
     await loadCalendar();
     await loadDailyLog();
     await loadForecast();
+    await loadTrendSeries();
   } catch (error) {
     errorText.value = error.message;
   } finally {
@@ -434,6 +584,7 @@ async function saveWeight() {
     successText.value = "体重已更新并参与预测";
     await loadActivePlan();
     await loadForecast();
+    await loadTrendSeries();
   } catch (error) {
     errorText.value = error.message;
   } finally {
@@ -524,6 +675,7 @@ onMounted(async () => {
       await loadCalendar();
       await loadForecast();
       await loadDailyLog();
+      await loadTrendSeries();
     }
   } catch (error) {
     errorText.value = error?.message || "初始化失败，请稍后重试";
@@ -932,14 +1084,104 @@ onMounted(async () => {
           <button type="button" class="save-btn" :disabled="saving || loading" @click="saveDailyLog">
             {{ saving ? "保存中..." : "保存当日记录" }}
           </button>
+
+          <p class="record-inline-tip">建议早晨空腹称重，以获得更稳定的趋势预测。</p>
         </div>
 
-        <div class="tip-card">建议早晨空腹称重，以获得更稳定的趋势预测。</div>
         <div v-if="forecastPaused" class="warn-card">最近连续缺失记录，预测已暂停，补录后自动恢复。</div>
         <div v-if="continuousFailDays >= 3" class="warn-card red">
           已连续 {{ continuousFailDays }} 天未达标，建议复盘饮食与运动安排。
         </div>
       </aside>
+    </section>
+
+    <section v-if="!initializing && plan" class="trend-card">
+      <div class="trend-head">
+        <h3>趋势展示</h3>
+        <small>从计划开始至今，共 {{ trendDayCount }} 天</small>
+      </div>
+
+      <div class="trend-tabs">
+        <button
+          v-for="tab in trendTabs"
+          :key="tab.key"
+          type="button"
+          class="trend-tab-btn"
+          :class="{ active: trendTab === tab.key }"
+          @click="trendTab = tab.key"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <div v-if="trendChart.points.length > 0" class="trend-chart-shell">
+        <svg
+          class="trend-chart-svg"
+          :viewBox="`0 0 ${trendChart.width} ${trendChart.height}`"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="趋势图"
+        >
+          <g>
+            <line
+              v-for="(tick, index) in trendChart.yTicks"
+              :key="`y-grid-${index}`"
+              class="trend-grid-line"
+              :x1="trendChart.plotLeft"
+              :y1="tick.y"
+              :x2="trendChart.width - 12"
+              :y2="tick.y"
+            />
+            <text
+              v-for="(tick, index) in trendChart.yTicks"
+              :key="`y-label-${index}`"
+              class="trend-axis-text"
+              x="4"
+              :y="tick.y + 4"
+            >
+              {{ formatTrendAxisValue(tick.value) }}
+            </text>
+          </g>
+
+          <g>
+            <line
+              v-for="(segment, index) in trendChart.segments"
+              :key="`seg-${index}`"
+              class="trend-line-segment"
+              :class="{ dashed: segment.dashed }"
+              :x1="segment.x1"
+              :y1="segment.y1"
+              :x2="segment.x2"
+              :y2="segment.y2"
+            />
+            <circle
+              v-for="(point, index) in trendChart.points"
+              :key="`pt-${index}`"
+              class="trend-point"
+              :class="{ imputed: point.imputed }"
+              :cx="point.x"
+              :cy="point.y"
+              r="3.5"
+            />
+          </g>
+
+          <g>
+            <text
+              v-for="(tick, index) in trendChart.xTicks"
+              :key="`x-label-${index}`"
+              class="trend-axis-text"
+              :x="tick.x"
+              :y="trendChart.height - 8"
+              :text-anchor="tick.anchor"
+            >
+              {{ tick.label }}
+            </text>
+          </g>
+        </svg>
+      </div>
+      <p v-else class="trend-empty">暂无趋势数据</p>
+
+      <p v-if="trendTab === 'weight'" class="trend-note">虚线段表示当日未登记体重，系统沿用前一日数据。</p>
     </section>
   </main>
 </template>
@@ -1514,7 +1756,7 @@ onMounted(async () => {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 12px;
   min-height: 76px;
-  background: #1e293b;
+  background: #24334a;
   text-align: left;
   padding: 8px;
   display: flex;
@@ -1524,35 +1766,28 @@ onMounted(async () => {
 }
 
 .calendar-cell.selected {
-  outline: 2px solid #3b82f6;
+  transform: translateY(-1px);
 }
 
 .status-green {
-  background: #1e293b;
-  border-color: rgba(52, 211, 153, 0.45);
-  border-top: 4px solid #34d399;
-  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.2);
+  border-width: 2px;
+  border-color: #4ade80;
 }
 
 .status-yellow {
-  background: #1e293b;
-  border-color: rgba(251, 191, 36, 0.45);
-  border-top: 4px solid #fbbf24;
-  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.2);
+  border-width: 2px;
+  border-color: #fbbf24;
 }
 
 .status-red {
-  background: #1e293b;
-  border-color: rgba(248, 113, 113, 0.45);
-  border-top: 4px solid #f87171;
-  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.2);
+  border-width: 2px;
+  border-color: #f87171;
 }
 
 .status-gray {
-  background: #1e293b;
+  background: #24334a;
+  border-width: 1px;
   border-color: rgba(148, 163, 184, 0.35);
-  border-top: 4px solid rgba(148, 163, 184, 0.7);
-  box-shadow: none;
 }
 
 .day-number {
@@ -1567,10 +1802,139 @@ onMounted(async () => {
   color: #cbd5e1;
 }
 
+.status-green .day-number,
+.status-green .day-deficit {
+  color: #86efac;
+}
+
+.status-yellow .day-number,
+.status-yellow .day-deficit {
+  color: #fde68a;
+}
+
+.status-red .day-number,
+.status-red .day-deficit {
+  color: #fca5a5;
+}
+
+.status-gray .day-number,
+.status-gray .day-deficit {
+  color: #dbe4f0;
+}
+
 .calendar-side {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.trend-card {
+  margin-top: 12px;
+  border-radius: 14px;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  padding: 14px;
+}
+
+.trend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trend-head h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #e2e8f0;
+}
+
+.trend-head small {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.trend-tabs {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trend-tab-btn {
+  width: auto;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trend-tab-btn.active {
+  border-color: #2563eb;
+  background: rgba(37, 99, 235, 0.28);
+  color: #eff6ff;
+}
+
+.trend-chart-shell {
+  margin-top: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  padding: 8px 10px;
+}
+
+.trend-chart-svg {
+  display: block;
+  width: 100%;
+  height: 240px;
+}
+
+.trend-grid-line {
+  stroke: rgba(148, 163, 184, 0.25);
+  stroke-width: 1;
+}
+
+.trend-line-segment {
+  stroke: #38bdf8;
+  stroke-width: 2;
+  fill: none;
+}
+
+.trend-line-segment.dashed {
+  stroke-dasharray: 6 4;
+  opacity: 0.95;
+}
+
+.trend-point {
+  fill: #38bdf8;
+  stroke: #0f172a;
+  stroke-width: 1.5;
+}
+
+.trend-point.imputed {
+  fill: rgba(56, 189, 248, 0.22);
+  stroke: #38bdf8;
+}
+
+.trend-axis-text {
+  fill: #94a3b8;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.trend-note {
+  margin: 8px 0 0;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.trend-empty {
+  margin: 12px 0 0;
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .record-card {
@@ -1783,6 +2147,12 @@ onMounted(async () => {
   background: #64748b;
 }
 
+.record-inline-tip {
+  margin: 8px 2px 0;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
 .tip-card,
 .warn-card {
   border-radius: 12px;
@@ -1832,6 +2202,15 @@ onMounted(async () => {
   .wizard-actions.between {
     gap: 10px;
     flex-direction: column;
+  }
+
+  .trend-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .trend-chart-svg {
+    height: 220px;
   }
 }
 </style>

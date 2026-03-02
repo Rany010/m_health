@@ -1,0 +1,56 @@
+<style>
+  /* Base Calendar Container - Using a slate-950 for contrast */
+  .calendar-bg { background-color: #020617; padding: 2rem; border-radius: 1.5rem; }
+
+  /* Generic Day Cell */
+  .day-cell {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  /* Status: Green (Success) - Based on Deficit Target */
+  .status-green {
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.15); /* Soft transparent green */
+    box-shadow: inset 0 0 12px rgba(16, 185, 129, 0.1);
+  }
+  .status-green .day-label { color: #34d399; }
+  .status-green .data-label { color: #6ee7b7; opacity: 0.9; }
+
+  /* Status: Gray (No Data) */
+  .status-gray {
+    border-color: rgba(148, 163, 184, 0.3);
+    background: rgba(148, 163, 184, 0.05);
+  }
+  .status-gray .day-label { color: #64748b; }
+
+  /* Selection State (Blue Highlight) */
+  .day-cell.selected {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+    background: rgba(59, 130, 246, 0.1);
+  }
+
+  /* Typography within cell */
+  .day-label { font-size: 0.875rem; font-weight: 700; }
+  .data-label { font-size: 0.65rem; font-weight: 500; margin-top: auto; }
+</style>
+
+<div class="calendar-bg grid grid-cols-7 gap-3">
+  <div class="day-cell status-gray flex flex-col p-2">
+    <span class="day-label">01</span>
+  </div>
+
+  <div class="day-cell status-green selected flex flex-col p-2">
+    <div class="flex justify-between items-start w-full">
+      <span class="day-label">02</span>
+      <i class="fas fa-check-circle text-[8px] text-emerald-400"></i>
+    </div>
+    <span class="data-label">减重 69g</span>
+  </div>
+</div>
