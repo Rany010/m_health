@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { apiRequest, setToken } from "../services/api";
 
 const router = useRouter();
+const mode = ref("login");
 const accountId = ref("");
 const password = ref("");
 const rememberSevenDays = ref(true);
@@ -23,8 +24,9 @@ function normalizeAccountId(input) {
 const isValidAccountId = computed(() => /^\d{6}$/.test(accountId.value));
 const isWeakAccount = computed(() => weakAccounts.has(accountId.value));
 const isLocked = computed(() => nowTs.value < lockUntilTs.value);
+const loginLocked = computed(() => mode.value === "login" && isLocked.value);
 const canSubmit = computed(
-  () => isValidAccountId.value && password.value.length > 0 && !isLocked.value && !loading.value
+  () => isValidAccountId.value && password.value.length >= 8 && !loginLocked.value && !loading.value
 );
 const lockRemainMs = computed(() => Math.max(lockUntilTs.value - nowTs.value, 0));
 const lockRemainMinutes = computed(() => String(Math.floor(lockRemainMs.value / 60000)).padStart(2, "0"));
@@ -36,12 +38,16 @@ async function submit() {
   errorText.value = "";
   accountId.value = normalizeAccountId(accountId.value);
   if (!canSubmit.value) {
+    if (password.value.length > 0 && password.value.length < 8) {
+      errorText.value = "密码至少8位。";
+    }
     return;
   }
 
   loading.value = true;
   try {
-    const payload = await apiRequest("/auth-login", {
+    const endpoint = mode.value === "register" ? "/auth-register" : "/auth-login";
+    const payload = await apiRequest(endpoint, {
       method: "POST",
       body: JSON.stringify({
         account_id: accountId.value,
@@ -51,16 +57,26 @@ async function submit() {
     setToken(payload.token);
     window.localStorage.setItem("mhealth_remember_7d", rememberSevenDays.value ? "1" : "0");
     await router.push("/dashboard");
-  } catch (_error) {
-    failCount.value += 1;
-    errorText.value = "账号或密码错误，请重试。";
-    if (failCount.value >= 5) {
-      lockUntilTs.value = Date.now() + 15 * 60 * 1000;
-      errorText.value = "账号或密码错误，请稍后再试。";
+  } catch (error) {
+    if (mode.value === "login") {
+      failCount.value += 1;
+      errorText.value = "账号或密码错误，请重试。";
+      if (failCount.value >= 5) {
+        lockUntilTs.value = Date.now() + 15 * 60 * 1000;
+        errorText.value = "账号或密码错误，请稍后再试。";
+      }
+    } else {
+      errorText.value = error?.message || "注册失败，请稍后重试。";
     }
   } finally {
     loading.value = false;
   }
+}
+
+function switchMode(nextMode) {
+  if (loading.value) return;
+  mode.value = nextMode;
+  errorText.value = "";
 }
 
 onMounted(() => {
@@ -86,7 +102,7 @@ onUnmounted(() => {
       <div class="brand">
         <div class="logo">🔥</div>
         <h1>Fat Loss Planner</h1>
-        <p>欢迎回来，继续保持节奏。</p>
+        <p>{{ mode === "login" ? "欢迎回来，继续保持节奏。" : "创建账号，开启你的减脂计划。" }}</p>
       </div>
 
       <form class="form" @submit.prevent="submit">
@@ -98,7 +114,7 @@ onUnmounted(() => {
             inputmode="numeric"
             maxlength="6"
             placeholder="000000"
-            :disabled="isLocked || loading"
+            :disabled="loginLocked || loading"
             @input="accountId = normalizeAccountId(accountId)"
           />
           <p v-if="accountId && !isValidAccountId" class="hint error-text">账号必须为6位数字。</p>
@@ -112,24 +128,45 @@ onUnmounted(() => {
             v-model="password"
             type="password"
             placeholder="••••••••"
-            :disabled="isLocked || loading"
+            :disabled="loginLocked || loading"
           />
         </div>
+        <p v-if="password && password.length < 8" class="hint error-text">密码至少8位。</p>
 
         <label class="remember">
-          <input v-model="rememberSevenDays" type="checkbox" :disabled="isLocked || loading" />
+          <input v-model="rememberSevenDays" type="checkbox" :disabled="loginLocked || loading" />
           <span>保持登录7天（会话自动续期）</span>
         </label>
 
         <p v-if="errorText" class="error-box">{{ errorText }}</p>
-        <p v-if="isLocked" class="lock-text">
+        <p v-if="loginLocked" class="lock-text">
           账号已锁定，请在 {{ lockRemainMinutes }}分{{ lockRemainSeconds }}秒后重试
         </p>
 
         <button class="submit-btn" type="submit" :disabled="!canSubmit">
-          {{ loading ? "SIGNING IN..." : "SIGN IN" }}
+          {{
+            loading
+              ? mode === "login"
+                ? "SIGNING IN..."
+                : "SIGNING UP..."
+              : mode === "login"
+                ? "SIGN IN"
+                : "SIGN UP"
+          }}
         </button>
       </form>
+
+      <div class="entry-switch">
+        <span>{{ mode === "login" ? "还没有账号？" : "已有账号？" }}</span>
+        <button
+          class="entry-link-btn"
+          type="button"
+          :disabled="loading"
+          @click="switchMode(mode === 'login' ? 'register' : 'login')"
+        >
+          {{ mode === "login" ? "去注册" : "返回登录" }}
+        </button>
+      </div>
 
       <p class="security-note">Security Note: 5 failed attempts will lock your account for 15 minutes.</p>
       <p class="security-note">统一错误提示，不区分“账号不存在”与“密码错误”。</p>
@@ -297,5 +334,36 @@ onUnmounted(() => {
   text-align: center;
   color: #94a3b8;
   font-size: 11px;
+}
+
+.entry-switch {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.entry-link-btn {
+  width: auto;
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.entry-link-btn:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+.entry-link-btn:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+  text-decoration: none;
 }
 </style>
