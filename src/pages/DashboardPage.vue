@@ -1178,7 +1178,7 @@ onMounted(async () => {
               <div class="meal-head">
                 <h5>{{ meal.label }}</h5>
                 <small class="meal-target">
-                  建议 {{ mealSuggestedKcal(meal.key) }} kcal，已记录 {{ mealActualKcal(meal.key) }} kcal
+                  建议 {{ mealSuggestedKcal(meal.key) }} kcal，已摄入 {{ mealActualKcal(meal.key) }}kcal
                 </small>
                 <button type="button" class="sub-btn" @click="addFood(meal.key)">+ 添加</button>
               </div>
