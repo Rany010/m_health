@@ -3,23 +3,41 @@ import { query } from "./_lib/db.js";
 import { getPlanByIdAndUser } from "./_lib/domain.js";
 import { badRequest, ok, serverError } from "./_lib/response.js";
 
-function monthRange(year, month) {
+function utcDateFromKey(dateKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+    return null;
+  }
+  const [year, month, day] = dateKey.split("-").map((item) => Number(item));
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function monthRange(year, month, planStartDate) {
   const first = new Date(Date.UTC(year, month - 1, 1));
   const last = new Date(Date.UTC(year, month, 0));
   const today = new Date();
   const todayUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
   const cappedLast = last.getTime() > todayUtc.getTime() ? todayUtc : last;
-  if (first.getTime() > cappedLast.getTime()) {
+  const planStartUtc = utcDateFromKey(planStartDate);
+  const start =
+    planStartUtc && planStartUtc.getTime() > first.getTime() ? planStartUtc : first;
+  if (start.getTime() > cappedLast.getTime()) {
     return {
-      start: first.toISOString().slice(0, 10),
+      start: start.toISOString().slice(0, 10),
       end: cappedLast.toISOString().slice(0, 10),
+      startDay: 0,
+      endDay: -1,
       totalDays: 0
     };
   }
   return {
-    start: first.toISOString().slice(0, 10),
+    start: start.toISOString().slice(0, 10),
     end: cappedLast.toISOString().slice(0, 10),
-    totalDays: cappedLast.getUTCDate()
+    startDay: start.getUTCDate(),
+    endDay: cappedLast.getUTCDate(),
+    totalDays: cappedLast.getUTCDate() - start.getUTCDate() + 1
   };
 }
 
@@ -68,16 +86,19 @@ export async function handler(event) {
     if (!plan) {
       return badRequest("计划不存在或无访问权限");
     }
-    const range = monthRange(year, month);
-    const monthLogs = await query(
-      `
-        SELECT log_date, status, deficit
-        FROM daily_logs
-        WHERE plan_id = $1 AND log_date BETWEEN $2 AND $3
-        ORDER BY log_date ASC
-      `,
-      [planId, range.start, range.end]
-    );
+    const range = monthRange(year, month, toDateKey(plan.start_date));
+    const monthLogs =
+      range.totalDays > 0
+        ? await query(
+            `
+              SELECT log_date, status, deficit
+              FROM daily_logs
+              WHERE plan_id = $1 AND log_date BETWEEN $2 AND $3
+              ORDER BY log_date ASC
+            `,
+            [planId, range.start, range.end]
+          )
+        : { rows: [] };
 
     const statusByDate = {};
     const deficitByDate = {};
@@ -87,7 +108,7 @@ export async function handler(event) {
       deficitByDate[dateKey] = Number(row.deficit ?? 0);
     }
     const days = [];
-    for (let i = 1; i <= range.totalDays; i += 1) {
+    for (let i = range.startDay; i <= range.endDay; i += 1) {
       const date = `${year.toString().padStart(4, "0")}-${month
         .toString()
         .padStart(2, "0")}-${i.toString().padStart(2, "0")}`;

@@ -224,6 +224,10 @@ const monthLabel = computed(() => {
   }
   return d.toLocaleDateString("zh-CN", { year: "numeric", month: "long" });
 });
+const planStartDate = computed(() => {
+  if (!plan.value?.start_date) return "";
+  return String(plan.value.start_date).slice(0, 10);
+});
 const forecastDateLabel = computed(() => forecast.value?.estimated_finish_date || "待计算");
 const currentWeightNum = computed(() => Number(plan.value?.latest_weight ?? plan.value?.start_weight ?? 0));
 const targetWeightNum = computed(() => Number(plan.value?.target_weight ?? 0));
@@ -516,6 +520,9 @@ async function loadProfile() {
 async function loadActivePlan() {
   const payload = await apiRequest("/plan-active", { method: "GET" });
   plan.value = payload.plan;
+  if (planStartDate.value && selectedDate.value < planStartDate.value) {
+    selectedDate.value = planStartDate.value;
+  }
 }
 
 async function loadPresets() {
@@ -750,6 +757,10 @@ async function logout() {
 watch(
   selectedDate,
   async (nextDate) => {
+    if (planStartDate.value && String(nextDate ?? "") < planStartDate.value) {
+      selectedDate.value = planStartDate.value;
+      return;
+    }
     if (String(nextDate ?? "") > todayDate) {
       selectedDate.value = todayDate;
       return;
@@ -1080,7 +1091,13 @@ onMounted(async () => {
       <div class="calendar-main">
         <div class="calendar-head">
           <h2>{{ monthLabel }}</h2>
-          <input v-model="selectedDate" type="date" class="calendar-date-input" :max="todayDate" />
+          <input
+            v-model="selectedDate"
+            type="date"
+            class="calendar-date-input"
+            :min="planStartDate || undefined"
+            :max="todayDate"
+          />
         </div>
         <div class="calendar-legend">
           <span class="legend green">Green: 达标</span>
