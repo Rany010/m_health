@@ -10,6 +10,10 @@ function localDateString(date = new Date()) {
   return `${y}-${m}-${d}`;
 }
 
+function clampWeeks(value) {
+  return Math.min(104, Math.max(4, Math.round(Number(value) || 0)));
+}
+
 const router = useRouter();
 const profile = ref(null);
 const loading = ref(true);
@@ -73,6 +77,11 @@ const mealGroups = [
   { key: "lunch", label: "午餐" },
   { key: "dinner", label: "晚餐" }
 ];
+const mealRatioMap = {
+  breakfast: 0.2,
+  lunch: 0.5,
+  dinner: 0.3
+};
 const trendTabs = [
   { key: "weight", label: "体重变化趋势", unit: "kg" },
   { key: "deficit", label: "缺口趋势", unit: "kcal" },
@@ -106,12 +115,74 @@ const calculatedBmr = computed(() => {
 const calculatedTdee = computed(() =>
   Math.round(calculatedBmr.value * selectedActivityFactor.value + averageExerciseKcal.value)
 );
+const weightDiffKg = computed(() =>
+  Math.max(0, Number(planForm.value.current_weight) - Number(planForm.value.target_weight))
+);
+const recommendedWeeklyLoss = computed(() => {
+  const currentWeight = Number(planForm.value.current_weight);
+  const age = Number(planForm.value.age);
+  if (!Number.isFinite(currentWeight) || currentWeight <= 0) {
+    return { min: 0.25, max: 0.7, suggested: 0.5 };
+  }
+  let maxRatio = planForm.value.sex === "male" ? 0.01 : 0.009;
+  if (age >= 40) maxRatio *= 0.9;
+  if (age >= 55) maxRatio *= 0.8;
+  if (age < 18) maxRatio *= 0.75;
+  const max = Math.min(1.0, Math.max(0.25, currentWeight * maxRatio));
+  const min = Math.max(0.2, Math.min(0.6, max * 0.7));
+  const suggested = Math.max(min, Math.min(max, (min + max) / 2));
+  return {
+    min: Number(min.toFixed(2)),
+    max: Number(max.toFixed(2)),
+    suggested: Number(suggested.toFixed(2))
+  };
+});
+const recommendedWeekRange = computed(() => {
+  const diff = weightDiffKg.value;
+  if (diff <= 0) {
+    return { min: 8, max: 12, recommended: 10 };
+  }
+  const minWeeks = clampWeeks(Math.ceil(diff / Math.max(recommendedWeeklyLoss.value.max, 0.2)));
+  const maxWeeks = clampWeeks(Math.ceil(diff / Math.max(recommendedWeeklyLoss.value.min, 0.1)));
+  const recommended = clampWeeks(Math.ceil(diff / Math.max(recommendedWeeklyLoss.value.suggested, 0.1)));
+  return {
+    min: Math.min(minWeeks, maxWeeks),
+    max: Math.max(minWeeks, maxWeeks),
+    recommended: Math.min(Math.max(recommended, minWeeks), maxWeeks)
+  };
+});
+const recommendedWeeks = computed(() => recommendedWeekRange.value.recommended);
+const recommendedPlanDays = computed(() => recommendedWeeks.value * 7);
+const expectedWeeklyLossKg = computed(() => {
+  const weeks = Number(planForm.value.expected_weeks);
+  if (!Number.isFinite(weeks) || weeks <= 0) return 0;
+  return weightDiffKg.value / weeks;
+});
+const periodRiskLevel = computed(() => {
+  if (weightDiffKg.value <= 0) return "normal";
+  if (Number(planForm.value.expected_weeks) < recommendedWeekRange.value.min) return "fast";
+  if (Number(planForm.value.expected_weeks) > recommendedWeekRange.value.max) return "slow";
+  return "normal";
+});
+const periodRiskText = computed(() => {
+  if (periodRiskLevel.value === "fast") {
+    return `当前周期偏激进，建议至少 ${recommendedWeekRange.value.min} 周。`;
+  }
+  if (periodRiskLevel.value === "slow") {
+    return `当前周期偏保守，建议控制在 ${recommendedWeekRange.value.max} 周以内。`;
+  }
+  return "当前周期处于建议范围内。";
+});
+const periodWeekOptions = computed(() => {
+  const values = new Set([8, 10, 12, 16, 20, 24, 28, 32, Number(planForm.value.expected_weeks), recommendedWeekRange.value.min, recommendedWeekRange.value.max, recommendedWeeks.value]);
+  return Array.from(values)
+    .map((item) => Math.round(Number(item)))
+    .filter((item) => Number.isInteger(item) && item >= 4 && item <= 104)
+    .sort((a, b) => a - b);
+});
 const planDays = computed(() => Math.max(Number(planForm.value.expected_weeks) * 7, 7));
 const recommendedDeficit = computed(() => {
-  const weightDiff = Math.max(
-    0,
-    Number(planForm.value.current_weight) - Number(planForm.value.target_weight)
-  );
+  const weightDiff = weightDiffKg.value;
   if (weightDiff <= 0) return 300;
   const deficit = Math.round((weightDiff * 7700) / Math.max(1, Number(planDays.value)));
   if (deficit < 300) return 300;
@@ -126,6 +197,14 @@ const isTooFast = computed(() => Number(weeklyLossKg.value) > 1.0);
 const planEndDate = computed(() => {
   const end = new Date(planForm.value.start_date);
   end.setDate(end.getDate() + planDays.value);
+  const y = end.getFullYear();
+  const m = String(end.getMonth() + 1).padStart(2, "0");
+  const d = String(end.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+});
+const recommendedEndDate = computed(() => {
+  const end = new Date(planForm.value.start_date);
+  end.setDate(end.getDate() + recommendedPlanDays.value);
   const y = end.getFullYear();
   const m = String(end.getMonth() + 1).padStart(2, "0");
   const d = String(end.getDate()).padStart(2, "0");
@@ -177,6 +256,17 @@ const continuousFailDays = computed(() => {
 const forecastPaused = computed(() => {
   const recent = calendarDays.value.slice(-3);
   return recent.length === 3 && recent.every((day) => day.status === "gray");
+});
+const mealTargetKcalMap = computed(() => {
+  const target = Math.max(0, Math.round(Number(plan.value?.daily_kcal_target ?? 0)));
+  const breakfast = Math.round(target * mealRatioMap.breakfast);
+  const lunch = Math.round(target * mealRatioMap.lunch);
+  const dinner = Math.max(0, target - breakfast - lunch);
+  return {
+    breakfast,
+    lunch,
+    dinner
+  };
 });
 const activeTrendTab = computed(() => trendTabs.find((item) => item.key === trendTab.value) ?? trendTabs[0]);
 const trendDayCount = computed(() => trendDays.value.length);
@@ -367,6 +457,11 @@ function syncFoodKcal(item) {
 
 function foodsByMeal(mealType) {
   return currentLog.value.foods.filter((item) => normalizeMealType(item.meal_type) === mealType);
+}
+
+function mealSuggestedKcal(mealType) {
+  const key = normalizeMealType(mealType);
+  return mealTargetKcalMap.value[key] ?? 0;
 }
 
 function onExerciseTypeChange(item) {
@@ -638,6 +733,10 @@ function toggleExerciseType(typeKey) {
   selected.push(typeKey);
 }
 
+function applyRecommendedWeeks() {
+  planForm.value.expected_weeks = recommendedWeeks.value;
+}
+
 async function logout() {
   try {
     await apiRequest("/auth-logout", { method: "POST" });
@@ -769,6 +868,14 @@ onMounted(async () => {
               <label>计划开始日期</label>
               <input v-model="planForm.start_date" type="date" :max="todayDate" />
             </div>
+            <div class="period-recommend-box">
+              <p>
+                推荐达标周期：<strong>{{ recommendedWeeks }} 周</strong>
+                <span>（约 {{ recommendedPlanDays }} 天）</span>
+              </p>
+              <p>建议范围：{{ recommendedWeekRange.min }} - {{ recommendedWeekRange.max }} 周</p>
+              <p>预计达标日期：{{ recommendedEndDate }}</p>
+            </div>
           </div>
         </div>
         <div class="wizard-actions end">
@@ -860,12 +967,18 @@ onMounted(async () => {
           <div class="field-stack">
             <label>期望达标周期</label>
             <select v-model.number="planForm.expected_weeks">
-              <option :value="8">8 周</option>
-              <option :value="12">12 周</option>
-              <option :value="16">16 周</option>
-              <option :value="20">20 周</option>
-              <option :value="24">24 周</option>
+              <option v-for="weeks in periodWeekOptions" :key="weeks" :value="weeks">
+                {{ weeks }} 周{{ weeks === recommendedWeeks ? "（推荐）" : "" }}
+              </option>
             </select>
+            <p class="period-suggest-line">
+              推荐：{{ recommendedWeeks }} 周（{{ recommendedWeekRange.min }}-{{ recommendedWeekRange.max }} 周）
+            </p>
+            <p class="period-suggest-line">当前速度：约 {{ expectedWeeklyLossKg.toFixed(2) }} kg / 周</p>
+            <p class="period-suggest-line" :class="periodRiskLevel === 'fast' ? 'risk-fast' : periodRiskLevel === 'slow' ? 'risk-slow' : 'risk-ok'">
+              {{ periodRiskText }}
+            </p>
+            <button type="button" class="mini-btn" @click="applyRecommendedWeeks">采用推荐周期</button>
           </div>
         </div>
 
@@ -1020,6 +1133,7 @@ onMounted(async () => {
             <div v-for="meal in mealGroups" :key="meal.key" class="meal-block">
               <div class="meal-head">
                 <h5>{{ meal.label }}</h5>
+                <small class="meal-target">建议 {{ mealSuggestedKcal(meal.key) }} kcal</small>
                 <button type="button" class="sub-btn" @click="addFood(meal.key)">+ 添加</button>
               </div>
               <p v-if="foodsByMeal(meal.key).length === 0" class="meal-empty">暂无记录</p>
@@ -1363,6 +1477,58 @@ onMounted(async () => {
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.06);
   color: #e2e8f0;
+}
+
+.period-recommend-box {
+  margin-top: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.period-recommend-box p {
+  margin: 0 0 4px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.period-recommend-box p:last-child {
+  margin-bottom: 0;
+}
+
+.period-recommend-box strong {
+  color: #93c5fd;
+}
+
+.period-suggest-line {
+  margin: 6px 0 0;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.period-suggest-line.risk-fast {
+  color: #fca5a5;
+}
+
+.period-suggest-line.risk-slow {
+  color: #fcd34d;
+}
+
+.period-suggest-line.risk-ok {
+  color: #86efac;
+}
+
+.mini-btn {
+  margin-top: 6px;
+  width: auto;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #1d4ed8;
+  color: #ffffff;
 }
 
 .gender-grid {
@@ -2012,7 +2178,7 @@ onMounted(async () => {
 .meal-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
 }
 
@@ -2024,6 +2190,13 @@ onMounted(async () => {
 
 .meal-head .sub-btn {
   margin: 0;
+  margin-left: auto;
+}
+
+.meal-target {
+  font-size: 11px;
+  color: #93c5fd;
+  font-weight: 600;
 }
 
 .meal-empty {

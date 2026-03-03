@@ -8,7 +8,8 @@ export const FOOD_PRESETS = [
   { food_name: "面条", kcal_per_100g: 137 },
   { food_name: "牛奶", kcal_per_100g: 54 },
   { food_name: "包子", kcal_per_100g: 230 },
-  { food_name: "西蓝花", kcal_per_100g: 34 }
+  { food_name: "西蓝花", kcal_per_100g: 34 },
+  { food_name: "美式", kcal_per_100g: 2 }
 ];
 
 export const EXERCISE_PRESETS = [
