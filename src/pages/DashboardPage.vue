@@ -272,6 +272,20 @@ const mealTargetKcalMap = computed(() => {
     dinner
   };
 });
+const mealActualKcalMap = computed(() =>
+  currentLog.value.foods.reduce(
+    (totals, item) => {
+      const key = normalizeMealType(item.meal_type);
+      totals[key] += toNonNegativeInt(item.kcal);
+      return totals;
+    },
+    {
+      breakfast: 0,
+      lunch: 0,
+      dinner: 0
+    }
+  )
+);
 const activeTrendTab = computed(() => trendTabs.find((item) => item.key === trendTab.value) ?? trendTabs[0]);
 const trendDayCount = computed(() => trendDays.value.length);
 const trendChart = computed(() => {
@@ -474,6 +488,11 @@ function foodsByMeal(mealType) {
 function mealSuggestedKcal(mealType) {
   const key = normalizeMealType(mealType);
   return mealTargetKcalMap.value[key] ?? 0;
+}
+
+function mealActualKcal(mealType) {
+  const key = normalizeMealType(mealType);
+  return mealActualKcalMap.value[key] ?? 0;
 }
 
 function onExerciseTypeChange(item) {
@@ -1158,7 +1177,9 @@ onMounted(async () => {
             <div v-for="meal in mealGroups" :key="meal.key" class="meal-block">
               <div class="meal-head">
                 <h5>{{ meal.label }}</h5>
-                <small class="meal-target">建议 {{ mealSuggestedKcal(meal.key) }} kcal</small>
+                <small class="meal-target">
+                  建议 {{ mealSuggestedKcal(meal.key) }} kcal，已记录 {{ mealActualKcal(meal.key) }} kcal
+                </small>
                 <button type="button" class="sub-btn" @click="addFood(meal.key)">+ 添加</button>
               </div>
               <p v-if="foodsByMeal(meal.key).length === 0" class="meal-empty">暂无记录</p>
