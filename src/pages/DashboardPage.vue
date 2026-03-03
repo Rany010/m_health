@@ -448,14 +448,22 @@ function formatTrendAxisValue(value) {
   return `${Math.round(Number(value))} kcal`;
 }
 
+function findFoodPreset(foodName) {
+  return presets.value.foods.find((f) => f.food_name === foodName) ?? null;
+}
+
 function computeFoodKcal(item) {
-  const preset = presets.value.foods.find((f) => f.food_name === item.food_name);
+  const preset = findFoodPreset(item.food_name);
   if (!preset) return 0;
   const grams = toNonNegativeInt(item.weight_g ?? 100);
   return Math.round((Number(preset.kcal_per_100g) * grams) / 100);
 }
 
 function syncFoodKcal(item) {
+  const preset = findFoodPreset(item.food_name);
+  if (preset?.unit) {
+    item.portion = String(preset.unit);
+  }
   item.kcal = computeFoodKcal(item);
 }
 
@@ -487,7 +495,7 @@ function newFoodRow(mealType = "breakfast") {
     id: null,
     meal_type: normalizeMealType(mealType),
     food_name: first?.food_name ?? "",
-    portion: "1份",
+    portion: first?.unit ?? "1份",
     weight_g: 100,
     kcal: first ? Math.round(first.kcal_per_100g) : 0
   };
@@ -635,7 +643,7 @@ async function saveDailyLog() {
       id: f.id ?? null,
       meal_type: normalizeMealType(f.meal_type),
       food_name: String(f.food_name ?? ""),
-      portion: String(f.portion ?? "1份"),
+      portion: String(f.portion || findFoodPreset(f.food_name)?.unit || "1份"),
       weight_g: toNonNegativeInt(f.weight_g ?? 0),
       kcal: toNonNegativeInt(f.kcal)
     }));
