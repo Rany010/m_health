@@ -35,7 +35,30 @@ export async function handler(event) {
       `,
       [planId, date]
     );
-    const weight = weightResult.rows.length > 0 ? Number(weightResult.rows[0].weight) : null;
+    let weight = null;
+    let weightSource = "none";
+    if (weightResult.rows.length > 0) {
+      weight = Number(weightResult.rows[0].weight);
+      weightSource = "recorded";
+    } else {
+      const inheritedWeightRes = await query(
+        `
+          SELECT weight
+          FROM weight_logs
+          WHERE plan_id = $1 AND log_date < $2
+          ORDER BY log_date DESC, record_time DESC, id DESC
+          LIMIT 1
+        `,
+        [planId, date]
+      );
+      if (inheritedWeightRes.rows.length > 0) {
+        weight = Number(inheritedWeightRes.rows[0].weight);
+        weightSource = "inherited";
+      } else {
+        weight = Number(plan.start_weight);
+        weightSource = "plan_start";
+      }
+    }
 
     const { rows } = await query(
       `
@@ -47,7 +70,7 @@ export async function handler(event) {
       [planId, date]
     );
     if (rows.length === 0) {
-      return ok({ daily_log: null, foods: [], exercises: [], weight });
+      return ok({ daily_log: null, foods: [], exercises: [], weight, weight_source: weightSource });
     }
     const dailyLog = rows[0];
     const foods = await query(
@@ -72,7 +95,8 @@ export async function handler(event) {
       daily_log: dailyLog,
       foods: foods.rows,
       exercises: exercises.rows,
-      weight
+      weight,
+      weight_source: weightSource
     });
   } catch (error) {
     return serverError(error.message);
