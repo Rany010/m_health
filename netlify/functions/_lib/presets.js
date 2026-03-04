@@ -2,6 +2,7 @@ export const FOOD_PRESETS = [
   { food_name: "鸡蛋", kcal_per_100g: 144 },
   { food_name: "米饭", kcal_per_100g: 130 },
   { food_name: "鸡胸肉", kcal_per_100g: 133 },
+  { food_name: "虾仁", unit: "只", kcal_per_unit: 6 },
   { food_name: "牛肉", kcal_per_100g: 170 },
   { food_name: "豆腐", kcal_per_100g: 81 },
   { food_name: "玉米", kcal_per_100g: 106 },

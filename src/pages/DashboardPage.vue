@@ -40,16 +40,9 @@ const planForm = ref({
   height_cm: 175,
   current_weight: 85,
   target_weight: 68,
-  desired_days: 120,
   activity_type: "sedentary",
-  average_exercise_kcal: 220,
-  work_type: "sedentary",
-  steps_tier: "3000_6000",
-  commute_type: "bus",
-  sleep_tier: "normal",
   exercise_freq: 2,
   exercise_duration: 40,
-  exercise_types: ["run"],
   expected_weeks: 12,
   start_date: todayDate
 });
@@ -58,19 +51,6 @@ const activityLevelOptions = [
   { key: "light", label: "轻度", factor: 1.3, desc: "偶尔步行，家务劳动" },
   { key: "moderate", label: "中度", factor: 1.45, desc: "每周运动3-5次" },
   { key: "high", label: "高强度", factor: 1.6, desc: "高体力或每日训练" }
-];
-const workTypeOptions = [
-  { key: "sedentary", label: "久坐办公", desc: "长期坐姿工作" },
-  { key: "standing", label: "站立服务", desc: "长时间站立，活动中等" },
-  { key: "labor", label: "体力工作", desc: "日常体力消耗较高" }
-];
-const exerciseTypeOptions = [
-  { key: "run", label: "跑步" },
-  { key: "strength", label: "力量" },
-  { key: "swim", label: "游泳" },
-  { key: "ride", label: "骑行" },
-  { key: "ball", label: "球类" },
-  { key: "hiit", label: "HIIT" }
 ];
 const mealGroups = [
   { key: "breakfast", label: "早餐" },
@@ -228,7 +208,16 @@ const planStartDate = computed(() => {
   if (!plan.value?.start_date) return "";
   return String(plan.value.start_date).slice(0, 10);
 });
-const forecastDateLabel = computed(() => forecast.value?.estimated_finish_date || "待计算");
+const modelForecastPaused = computed(() => Boolean(forecast.value?.paused));
+const forecastDateLabel = computed(() =>
+  modelForecastPaused.value ? "预测暂停" : forecast.value?.estimated_finish_date || "待计算"
+);
+const forecastHintText = computed(() => {
+  if (modelForecastPaused.value) {
+    return forecast.value?.reason || "当前策略下无法预测";
+  }
+  return "基于最新执行质量预测";
+});
 const currentWeightNum = computed(() => Number(plan.value?.latest_weight ?? plan.value?.start_weight ?? 0));
 const targetWeightNum = computed(() => Number(plan.value?.target_weight ?? 0));
 const intakeTotal = computed(() =>
@@ -257,7 +246,7 @@ const continuousFailDays = computed(() => {
   }
   return count;
 });
-const forecastPaused = computed(() => {
+const missingLogsForecastPaused = computed(() => {
   const recent = calendarDays.value.slice(-3);
   return recent.length === 3 && recent.every((day) => day.status === "gray");
 });
@@ -466,19 +455,54 @@ function findFoodPreset(foodName) {
   return presets.value.foods.find((f) => f.food_name === foodName) ?? null;
 }
 
+function isUnitBasedFoodPreset(preset) {
+  return Number.isFinite(Number(preset?.kcal_per_unit));
+}
+
+function defaultFoodAmount(preset) {
+  return isUnitBasedFoodPreset(preset) ? 1 : 100;
+}
+
 function computeFoodKcal(item) {
   const preset = findFoodPreset(item.food_name);
   if (!preset) return 0;
-  const grams = toNonNegativeInt(item.weight_g ?? 100);
-  return Math.round((Number(preset.kcal_per_100g) * grams) / 100);
+  const amount = toNonNegativeInt(item.weight_g ?? defaultFoodAmount(preset));
+  if (isUnitBasedFoodPreset(preset)) {
+    return Math.round(Number(preset.kcal_per_unit) * amount);
+  }
+  return Math.round((Number(preset.kcal_per_100g) * amount) / 100);
 }
 
-function syncFoodKcal(item) {
+function syncFoodKcal(item, resetAmount = false) {
   const preset = findFoodPreset(item.food_name);
+  if (!preset) {
+    item.kcal = 0;
+    return;
+  }
   if (preset?.unit) {
     item.portion = String(preset.unit);
   }
+  if (resetAmount) {
+    item.weight_g = defaultFoodAmount(preset);
+  } else {
+    item.weight_g = toNonNegativeInt(item.weight_g ?? defaultFoodAmount(preset));
+  }
   item.kcal = computeFoodKcal(item);
+}
+
+function foodInputUnit(item) {
+  const preset = findFoodPreset(item.food_name);
+  return String(preset?.unit ?? "g");
+}
+
+function foodInputMin(item) {
+  const preset = findFoodPreset(item.food_name);
+  return isUnitBasedFoodPreset(preset) ? 1 : 10;
+}
+
+function foodInputMax(item) {
+  const preset = findFoodPreset(item.food_name);
+  return isUnitBasedFoodPreset(preset) ? 200 : 1000;
 }
 
 function foodsByMeal(mealType) {
@@ -510,13 +534,18 @@ function onExerciseKcalInput(item) {
 
 function newFoodRow(mealType = "breakfast") {
   const first = presets.value.foods[0];
+  const amount = defaultFoodAmount(first);
   return {
     id: null,
     meal_type: normalizeMealType(mealType),
     food_name: first?.food_name ?? "",
     portion: first?.unit ?? "1份",
-    weight_g: 100,
-    kcal: first ? Math.round(first.kcal_per_100g) : 0
+    weight_g: amount,
+    kcal: first
+      ? isUnitBasedFoodPreset(first)
+        ? Math.round(Number(first.kcal_per_unit) * amount)
+        : Math.round((Number(first.kcal_per_100g) * amount) / 100)
+      : 0
   };
 }
 
@@ -599,7 +628,7 @@ async function loadDailyLog() {
     meal_type: normalizeMealType(f.meal_type),
     food_name: f.food_name,
     portion: f.portion,
-    weight_g: toNonNegativeInt(f.weight_g ?? 100),
+    weight_g: toNonNegativeInt(f.weight_g ?? defaultFoodAmount(findFoodPreset(f.food_name))),
     kcal: toNonNegativeInt(f.kcal)
   }));
   const exercises = payload.exercises.map((e) => ({
@@ -757,16 +786,6 @@ function prevPlanStep() {
   }
 }
 
-function toggleExerciseType(typeKey) {
-  const selected = planForm.value.exercise_types;
-  const index = selected.indexOf(typeKey);
-  if (index >= 0) {
-    selected.splice(index, 1);
-    return;
-  }
-  selected.push(typeKey);
-}
-
 function applyRecommendedWeeks() {
   planForm.value.expected_weeks = recommendedWeeks.value;
 }
@@ -922,21 +941,6 @@ onMounted(async () => {
       </div>
 
       <div v-if="planStep === 2" class="wizard-body">
-        <h3 class="block-title">工作与活动模式</h3>
-        <div class="activity-grid">
-          <button
-            v-for="item in workTypeOptions"
-            :key="item.key"
-            type="button"
-            class="option-card left"
-            :class="{ active: planForm.work_type === item.key }"
-            @click="planForm.work_type = item.key"
-          >
-            <strong>{{ item.label }}</strong>
-            <small>{{ item.desc }}</small>
-          </button>
-        </div>
-
         <h3 class="block-title">日常活动强度</h3>
         <div class="activity-grid">
           <button
@@ -950,36 +954,6 @@ onMounted(async () => {
             <strong>{{ item.label }}</strong>
             <small>{{ item.desc }}</small>
           </button>
-        </div>
-
-        <div class="wizard-grid-three">
-          <div class="field-stack">
-            <label>平均每日步数</label>
-            <select v-model="planForm.steps_tier">
-              <option value="lt3000">少于 3000</option>
-              <option value="3000_6000">3000 - 6000</option>
-              <option value="6000_10000">6000 - 10000</option>
-              <option value="gt10000">超过 10000</option>
-            </select>
-          </div>
-          <div class="field-stack">
-            <label>通勤方式</label>
-            <select v-model="planForm.commute_type">
-              <option value="none">无</option>
-              <option value="walk">步行</option>
-              <option value="bike">骑车</option>
-              <option value="bus">公交</option>
-              <option value="car">开车</option>
-            </select>
-          </div>
-          <div class="field-stack">
-            <label>睡眠情况</label>
-            <select v-model="planForm.sleep_tier">
-              <option value="poor">不足 6h</option>
-              <option value="normal">6-8h</option>
-              <option value="good">8h 以上</option>
-            </select>
-          </div>
         </div>
 
         <h3 class="block-title">运动习惯</h3>
@@ -1018,19 +992,6 @@ onMounted(async () => {
             </p>
             <button type="button" class="mini-btn" @click="applyRecommendedWeeks">采用推荐周期</button>
           </div>
-        </div>
-
-        <div class="chips">
-          <button
-            v-for="type in exerciseTypeOptions"
-            :key="type.key"
-            type="button"
-            class="chip"
-            :class="{ active: planForm.exercise_types.includes(type.key) }"
-            @click="toggleExerciseType(type.key)"
-          >
-            {{ type.label }}
-          </button>
         </div>
 
         <div class="wizard-actions between">
@@ -1103,7 +1064,7 @@ onMounted(async () => {
         <div class="metric-main">
           <span class="metric-value metric-date">{{ forecastDateLabel }}</span>
         </div>
-        <p class="metric-muted">基于最新执行质量预测</p>
+        <p class="metric-muted">{{ forecastHintText }}</p>
       </article>
       <article class="metric-card">
         <p class="metric-label">执行质量</p>
@@ -1188,12 +1149,19 @@ onMounted(async () => {
                 :key="`food-${meal.key}-${food.id ?? 'new'}-${mealIndex}`"
                 class="entry-row"
               >
-                <select v-model="food.food_name" @change="syncFoodKcal(food)">
+                <select v-model="food.food_name" @change="syncFoodKcal(food, true)">
                   <option v-for="item in presets.foods" :key="item.food_name" :value="item.food_name">
                     {{ item.food_name }}
                   </option>
                 </select>
-                <input v-model.number="food.weight_g" type="number" min="10" max="1000" @input="syncFoodKcal(food)" />
+                <input
+                  v-model.number="food.weight_g"
+                  type="number"
+                  :min="foodInputMin(food)"
+                  :max="foodInputMax(food)"
+                  @input="syncFoodKcal(food)"
+                />
+                <span class="entry-unit">{{ foodInputUnit(food) }}</span>
                 <span class="entry-kcal">{{ toNonNegativeInt(food.kcal) }} kcal</span>
                 <button type="button" class="danger-btn" @click="removeFood(food)">删</button>
               </div>
@@ -1247,7 +1215,8 @@ onMounted(async () => {
           <p class="record-inline-tip">建议早晨空腹称重，以获得更稳定的趋势预测。</p>
         </div>
 
-        <div v-if="forecastPaused" class="warn-card">最近连续缺失记录，预测已暂停，补录后自动恢复。</div>
+        <div v-if="modelForecastPaused && forecast?.reason" class="warn-card">{{ forecast.reason }}</div>
+        <div v-if="missingLogsForecastPaused" class="warn-card">最近连续缺失记录，预测已暂停，补录后自动恢复。</div>
         <div v-if="continuousFailDays >= 3" class="warn-card red">
           已连续 {{ continuousFailDays }} 天未达标，建议复盘饮食与运动安排。
         </div>
@@ -1645,28 +1614,6 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #ffffff;
-}
-
-.chips {
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.chip {
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 999px;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #cbd5e1;
-  cursor: pointer;
-}
-
-.chip.active {
-  border-color: #2563eb;
-  background: rgba(37, 99, 235, 0.28);
-  color: #eff6ff;
 }
 
 .wizard-actions {
@@ -2253,7 +2200,7 @@ onMounted(async () => {
 
 .entry-row {
   display: grid;
-  grid-template-columns: minmax(110px, 1fr) 76px auto 32px;
+  grid-template-columns: minmax(110px, 1fr) 76px 28px auto 32px;
   gap: 6px;
   margin-bottom: 6px;
   align-items: center;
@@ -2292,6 +2239,12 @@ onMounted(async () => {
   color: #cbd5e1;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+.entry-unit {
+  color: #94a3b8;
+  font-size: 11px;
+  text-align: center;
 }
 
 .danger-btn {

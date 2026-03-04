@@ -36,6 +36,13 @@ export async function handler(event) {
     const averageDeficit =
       deficitsRes.rows.reduce((sum, row) => sum + Number(row.deficit), 0) /
       deficitsRes.rows.length;
+    if (averageDeficit <= 0) {
+      return ok({
+        paused: true,
+        reason: "当前平均缺口<=0，按当前执行无法达标",
+        average_deficit: Math.round(averageDeficit)
+      });
+    }
 
     const weightRes = await query(
       `

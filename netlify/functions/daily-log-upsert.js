@@ -37,7 +37,10 @@ function toOptionalId(value) {
 function buildFoodPresetMap() {
   const map = new Map();
   for (const item of FOOD_PRESETS) {
-    map.set(item.food_name, Number(item.kcal_per_100g));
+    map.set(item.food_name, {
+      kcal_per_100g: Number(item.kcal_per_100g),
+      kcal_per_unit: Number(item.kcal_per_unit)
+    });
   }
   return map;
 }
@@ -74,11 +77,18 @@ function resolveFoodKcal(food, oldFoodById, foodPresetMap) {
     };
   }
 
-  const kcalPer100g = foodPresetMap.get(foodName);
-  if (!Number.isFinite(kcalPer100g)) {
+  const preset = foodPresetMap.get(foodName);
+  if (!preset) {
     throw new Error(`未知食物: ${foodName}`);
   }
-  const kcal = Math.round((kcalPer100g * Number(weightG ?? 0)) / 100);
+  let kcal = 0;
+  if (Number.isFinite(preset.kcal_per_unit)) {
+    kcal = Math.round(preset.kcal_per_unit * Number(weightG ?? 0));
+  } else if (Number.isFinite(preset.kcal_per_100g)) {
+    kcal = Math.round((preset.kcal_per_100g * Number(weightG ?? 0)) / 100);
+  } else {
+    throw new Error(`未知食物: ${foodName}`);
+  }
   return {
     id: foodId,
     meal_type: mealType,
