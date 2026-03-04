@@ -49,7 +49,7 @@ export async function handler(event) {
         SELECT weight, log_date, record_time
         FROM weight_logs
         WHERE plan_id = $1
-        ORDER BY record_time DESC
+        ORDER BY log_date DESC, record_time DESC, id DESC
         LIMIT 30
       `,
       [planId]

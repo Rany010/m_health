@@ -30,6 +30,7 @@ const calendarDays = ref([]);
 const trendDays = ref([]);
 const streakDays = ref(0);
 const weekSuccessRate = ref(0);
+const selectedDateWeight = ref(null);
 const currentLog = ref({ foods: [], exercises: [], note: "" });
 const trendTab = ref("weight");
 const creatingPlan = ref(false);
@@ -382,12 +383,16 @@ const trendChart = computed(() => {
     y: toY(value)
   }));
   const tickIndexes = points.length === 1 ? [0] : Array.from(new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]));
-  const xTicks = tickIndexes.map((index) => ({
-    index,
-    x: toX(index),
-    label: `第${index + 1}天`,
-    anchor: index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"
-  }));
+  const xTicks = tickIndexes.map((index) => {
+    const tickDate = String(points[index]?.date ?? "");
+    const label = /^\d{4}-\d{2}-\d{2}$/.test(tickDate) ? tickDate.slice(5) : `第${index + 1}天`;
+    return {
+      index,
+      x: toX(index),
+      label,
+      anchor: index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"
+    };
+  });
 
   return {
     ...base,
@@ -619,6 +624,8 @@ async function loadDailyLog() {
     `/daily-log-get?plan_id=${plan.value.id}&date=${selectedDate.value}`,
     { method: "GET" }
   );
+  selectedDateWeight.value =
+    payload.weight === null || payload.weight === undefined ? null : Number(payload.weight);
   if (!payload.daily_log) {
     currentLog.value = { foods: [newFoodRow()], exercises: [newExerciseRow()], note: "" };
     return;
@@ -727,6 +734,11 @@ async function saveDailyLog() {
 
 async function saveWeight() {
   if (!plan.value) return;
+  const weight = Number(selectedDateWeight.value);
+  if (!Number.isFinite(weight) || weight < 20 || weight > 300) {
+    errorText.value = "请输入20-300kg范围内的体重";
+    return;
+  }
   saving.value = true;
   errorText.value = "";
   successText.value = "";
@@ -736,11 +748,12 @@ async function saveWeight() {
       body: JSON.stringify({
         plan_id: plan.value.id,
         date: selectedDate.value,
-        weight: plan.value.latest_weight
+        weight
       })
     });
     successText.value = "体重已更新并参与预测";
     await loadActivePlan();
+    await loadDailyLog();
     await loadForecast();
     await loadTrendSeries();
   } catch (error) {
@@ -1196,7 +1209,7 @@ onMounted(async () => {
             <div class="weight-box">
               <label>更新体重 (kg)</label>
               <div class="weight-row">
-                <input v-model.number="plan.latest_weight" type="number" min="20" max="250" step="0.1" />
+                <input v-model.number="selectedDateWeight" type="number" min="20" max="300" step="0.1" />
                 <button type="button" class="sub-btn" :disabled="saving" @click="saveWeight">保存体重</button>
               </div>
             </div>

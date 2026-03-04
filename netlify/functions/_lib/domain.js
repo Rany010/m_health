@@ -33,7 +33,7 @@ export async function getLatestWeight(planId, fallbackWeight) {
       SELECT weight
       FROM weight_logs
       WHERE plan_id = $1
-      ORDER BY record_time DESC
+      ORDER BY log_date DESC, record_time DESC, id DESC
       LIMIT 1
     `,
     [planId]

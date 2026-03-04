@@ -25,6 +25,18 @@ export async function handler(event) {
       return badRequest("计划不存在或无访问权限");
     }
 
+    const weightResult = await query(
+      `
+        SELECT weight
+        FROM weight_logs
+        WHERE plan_id = $1 AND log_date = $2
+        ORDER BY record_time DESC, id DESC
+        LIMIT 1
+      `,
+      [planId, date]
+    );
+    const weight = weightResult.rows.length > 0 ? Number(weightResult.rows[0].weight) : null;
+
     const { rows } = await query(
       `
         SELECT *
@@ -35,7 +47,7 @@ export async function handler(event) {
       [planId, date]
     );
     if (rows.length === 0) {
-      return ok({ daily_log: null, foods: [], exercises: [] });
+      return ok({ daily_log: null, foods: [], exercises: [], weight });
     }
     const dailyLog = rows[0];
     const foods = await query(
@@ -59,7 +71,8 @@ export async function handler(event) {
     return ok({
       daily_log: dailyLog,
       foods: foods.rows,
-      exercises: exercises.rows
+      exercises: exercises.rows,
+      weight
     });
   } catch (error) {
     return serverError(error.message);
