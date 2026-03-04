@@ -87,9 +87,9 @@ export async function handler(event) {
       return badRequest("计划不存在或无访问权限");
     }
     const range = monthRange(year, month, toDateKey(plan.start_date));
-    const monthLogs =
+    const monthLogsPromise =
       range.totalDays > 0
-        ? await query(
+        ? query(
             `
               SELECT log_date, status, deficit
               FROM daily_logs
@@ -98,7 +98,19 @@ export async function handler(event) {
             `,
             [planId, range.start, range.end]
           )
-        : { rows: [] };
+        : Promise.resolve({ rows: [] });
+    const weekStatsPromise = query(
+      `
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE status = 'green')::int AS green
+        FROM daily_logs
+        WHERE plan_id = $1
+          AND log_date >= (CURRENT_DATE - INTERVAL '6 days')::date
+      `,
+      [planId]
+    );
+    const [monthLogs, weekStats] = await Promise.all([monthLogsPromise, weekStatsPromise]);
 
     const statusByDate = {};
     const deficitByDate = {};
@@ -119,17 +131,6 @@ export async function handler(event) {
       });
     }
 
-    const weekStats = await query(
-      `
-        SELECT
-          COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE status = 'green')::int AS green
-        FROM daily_logs
-        WHERE plan_id = $1
-          AND log_date >= (CURRENT_DATE - INTERVAL '6 days')::date
-      `,
-      [planId]
-    );
     const total = Number(weekStats.rows[0]?.total ?? 0);
     const green = Number(weekStats.rows[0]?.green ?? 0);
     const successRate = total === 0 ? 0 : Math.round((green / total) * 100);

@@ -17,17 +17,20 @@ export async function handler(event) {
     if (!plan) {
       return ok({ plan: null });
     }
-    const latestWeight = await getLatestWeight(plan.id, plan.start_weight);
-    const { rows } = await query(
-      `
-        SELECT
-          COUNT(*) FILTER (WHERE status = 'green')::int AS green_days,
-          COUNT(*)::int AS total_logged_days
-        FROM daily_logs
-        WHERE plan_id = $1
-      `,
-      [plan.id]
-    );
+    const [latestWeight, stats] = await Promise.all([
+      getLatestWeight(plan.id, plan.start_weight),
+      query(
+        `
+          SELECT
+            COUNT(*) FILTER (WHERE status = 'green')::int AS green_days,
+            COUNT(*)::int AS total_logged_days
+          FROM daily_logs
+          WHERE plan_id = $1
+        `,
+        [plan.id]
+      )
+    ]);
+    const rows = stats.rows;
 
     return ok({
       plan: {

@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { apiRequest, clearToken } from "../services/api";
+import { markFirstInteractive, markPerf, printPerfSummary } from "../services/perf";
 
 function localDateString(date = new Date()) {
   const y = date.getFullYear();
@@ -16,11 +17,16 @@ function clampWeeks(value) {
 
 const router = useRouter();
 const profile = ref(null);
-const loading = ref(true);
+const loading = ref(false);
 const initializing = ref(true);
 const errorText = ref("");
 const successText = ref("");
 const saving = ref(false);
+const presetsLoading = ref(false);
+const calendarLoading = ref(false);
+const forecastLoading = ref(false);
+const dailyLogLoading = ref(false);
+const trendLoading = ref(false);
 const plan = ref(null);
 const forecast = ref(null);
 const presets = ref({ foods: [], exercises: [] });
@@ -214,6 +220,9 @@ const forecastDateLabel = computed(() =>
   modelForecastPaused.value ? "预测暂停" : forecast.value?.estimated_finish_date || "待计算"
 );
 const forecastHintText = computed(() => {
+  if (forecastLoading.value) {
+    return "预测加载中...";
+  }
   if (modelForecastPaused.value) {
     return forecast.value?.reason || "当前策略下无法预测";
   }
@@ -564,69 +573,10 @@ function newExerciseRow() {
   };
 }
 
-async function loadProfile() {
-  loading.value = true;
-  errorText.value = "";
-  try {
-    profile.value = await apiRequest("/me", { method: "GET" });
-  } catch (error) {
-    clearToken();
-    errorText.value = "登录状态失效，请重新登录";
-    await router.push("/");
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function loadActivePlan() {
-  const payload = await apiRequest("/plan-active", { method: "GET" });
-  plan.value = payload.plan;
-  if (planStartDate.value && selectedDate.value < planStartDate.value) {
-    selectedDate.value = planStartDate.value;
-  }
-}
-
-async function loadPresets() {
-  presets.value = await apiRequest("/presets", { method: "GET" });
-}
-
-async function loadCalendar() {
-  if (!plan.value) return;
-  const params = todayMonthParams();
-  const payload = await apiRequest(
-    `/calendar-month?plan_id=${plan.value.id}&year=${params.year}&month=${params.month}`,
-    { method: "GET" }
-  );
-  calendarDays.value = payload.days;
-  streakDays.value = payload.current_streak;
-  weekSuccessRate.value = payload.week_success_rate;
-}
-
-async function loadForecast() {
-  if (!plan.value) return;
-  forecast.value = await apiRequest(`/forecast?plan_id=${plan.value.id}`, { method: "GET" });
-}
-
-async function loadTrendSeries() {
-  if (!plan.value) {
-    trendDays.value = [];
-    return;
-  }
-  const payload = await apiRequest(`/trend-series?plan_id=${plan.value.id}&end_date=${todayDate}`, {
-    method: "GET"
-  });
-  trendDays.value = Array.isArray(payload.days) ? payload.days : [];
-}
-
-async function loadDailyLog() {
-  if (!plan.value) return;
-  const payload = await apiRequest(
-    `/daily-log-get?plan_id=${plan.value.id}&date=${selectedDate.value}`,
-    { method: "GET" }
-  );
+function applyDailyLogPayload(payload) {
   selectedDateWeight.value =
-    payload.weight === null || payload.weight === undefined ? null : Number(payload.weight);
-  if (!payload.daily_log) {
+    payload?.weight === null || payload?.weight === undefined ? null : Number(payload.weight);
+  if (!payload?.daily_log) {
     currentLog.value = { foods: [newFoodRow()], exercises: [newExerciseRow()], note: "" };
     return;
   }
@@ -650,6 +600,102 @@ async function loadDailyLog() {
     exercises: exercises.length > 0 ? exercises : [newExerciseRow()],
     note: payload.daily_log.note ?? ""
   };
+}
+
+function resetPlanPanels() {
+  calendarDays.value = [];
+  streakDays.value = 0;
+  weekSuccessRate.value = 0;
+  forecast.value = null;
+  trendDays.value = [];
+  applyDailyLogPayload(null);
+}
+
+async function loadDashboardBootstrap({ includePresets = false } = {}) {
+  calendarLoading.value = true;
+  forecastLoading.value = true;
+  dailyLogLoading.value = true;
+  trendLoading.value = true;
+  if (includePresets) {
+    presetsLoading.value = true;
+  }
+  try {
+    const params = new URLSearchParams({
+      selected_date: selectedDate.value,
+      end_date: todayDate,
+      include_presets: includePresets ? "1" : "0"
+    });
+    const payload = await apiRequest(`/dashboard-bootstrap?${params.toString()}`, { method: "GET" });
+
+    profile.value = payload.profile ?? profile.value;
+    if (includePresets && payload.presets) {
+      presets.value = payload.presets;
+    }
+
+    plan.value = payload.plan;
+    if (planStartDate.value && selectedDate.value < planStartDate.value) {
+      selectedDate.value = planStartDate.value;
+    }
+
+    if (!plan.value) {
+      resetPlanPanels();
+      return;
+    }
+
+    calendarDays.value = Array.isArray(payload.calendar?.days) ? payload.calendar.days : [];
+    streakDays.value = Number(payload.calendar?.current_streak ?? 0);
+    weekSuccessRate.value = Number(payload.calendar?.week_success_rate ?? 0);
+    forecast.value = payload.forecast ?? null;
+    trendDays.value = Array.isArray(payload.trend?.days) ? payload.trend.days : [];
+    applyDailyLogPayload(payload.dailyLog ?? null);
+  } finally {
+    calendarLoading.value = false;
+    forecastLoading.value = false;
+    dailyLogLoading.value = false;
+    trendLoading.value = false;
+    if (includePresets) {
+      presetsLoading.value = false;
+    }
+  }
+}
+
+async function loadCalendar() {
+  if (!plan.value) {
+    calendarDays.value = [];
+    streakDays.value = 0;
+    weekSuccessRate.value = 0;
+    return;
+  }
+  calendarLoading.value = true;
+  try {
+    const params = todayMonthParams();
+    const payload = await apiRequest(
+      `/calendar-month?plan_id=${plan.value.id}&year=${params.year}&month=${params.month}`,
+      { method: "GET" }
+    );
+    calendarDays.value = payload.days;
+    streakDays.value = payload.current_streak;
+    weekSuccessRate.value = payload.week_success_rate;
+  } finally {
+    calendarLoading.value = false;
+  }
+}
+
+async function loadDailyLog() {
+  if (!plan.value) {
+    applyDailyLogPayload(null);
+    return;
+  }
+  dailyLogLoading.value = true;
+  try {
+    const payload = await apiRequest(
+      `/daily-log-get?plan_id=${plan.value.id}&date=${selectedDate.value}`,
+      { method: "GET" }
+    );
+    applyDailyLogPayload(payload);
+  } finally {
+    dailyLogLoading.value = false;
+  }
 }
 
 async function createPlan() {
@@ -676,11 +722,7 @@ async function createPlan() {
       })
     });
     successText.value = "计划已创建";
-    await loadActivePlan();
-    await loadCalendar();
-    await loadForecast();
-    await loadDailyLog();
-    await loadTrendSeries();
+    await loadDashboardBootstrap({ includePresets: false });
   } catch (error) {
     errorText.value = error.message;
   } finally {
@@ -721,10 +763,7 @@ async function saveDailyLog() {
       })
     });
     successText.value = "当日记录已保存";
-    await loadCalendar();
-    await loadDailyLog();
-    await loadForecast();
-    await loadTrendSeries();
+    await loadDashboardBootstrap({ includePresets: false });
   } catch (error) {
     errorText.value = error.message;
   } finally {
@@ -752,10 +791,7 @@ async function saveWeight() {
       })
     });
     successText.value = "体重已更新并参与预测";
-    await loadActivePlan();
-    await loadDailyLog();
-    await loadForecast();
-    await loadTrendSeries();
+    await loadDashboardBootstrap({ includePresets: false });
   } catch (error) {
     errorText.value = error.message;
   } finally {
@@ -825,30 +861,31 @@ watch(
       return;
     }
     if (!plan.value) return;
-    await loadCalendar();
-    await loadDailyLog();
+    await Promise.all([loadCalendar(), loadDailyLog()]);
   },
   { immediate: false }
 );
 
 onMounted(async () => {
+  markPerf("dashboard_init_start");
   initializing.value = true;
   try {
-    await loadProfile();
-    if (!profile.value) {
-      return;
-    }
-    await loadPresets();
-    await loadActivePlan();
-    if (plan.value) {
-      await loadCalendar();
-      await loadForecast();
-      await loadDailyLog();
-      await loadTrendSeries();
-    }
+    await loadDashboardBootstrap({ includePresets: true });
+    markPerf("dashboard_data_loaded");
+    initializing.value = false;
+    await nextTick();
+    markFirstInteractive("dashboard_first_interactive");
+    printPerfSummary("dashboard_init");
   } catch (error) {
-    errorText.value = error?.message || "初始化失败，请稍后重试";
-  } finally {
+    const message = String(error?.message ?? "");
+    if (message.includes("登录状态失效")) {
+      clearToken();
+      errorText.value = "登录状态失效，请重新登录";
+      await router.push("/");
+    } else {
+      errorText.value = error?.message || "初始化失败，请稍后重试";
+    }
+    printPerfSummary("dashboard_init_failed");
     initializing.value = false;
   }
 });
@@ -1060,6 +1097,9 @@ onMounted(async () => {
       </div>
     </section>
 
+    <p v-if="!initializing && plan && (calendarLoading || forecastLoading)" class="section-loading-text">
+      核心指标加载中...
+    </p>
     <section v-if="!initializing && plan" class="calendar-top-metrics">
       <article class="metric-card">
         <p class="metric-label">体重进度</p>
@@ -1109,7 +1149,8 @@ onMounted(async () => {
         <div class="calendar-weekdays">
           <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
         </div>
-        <div class="calendar-grid-new">
+        <p v-if="calendarLoading && calendarDays.length === 0" class="section-loading-text">日历数据加载中...</p>
+        <div v-else class="calendar-grid-new">
           <button
             v-for="day in calendarDays"
             :key="day.date"
@@ -1128,6 +1169,7 @@ onMounted(async () => {
         <div class="record-card">
           <h3>{{ selectedDate }}</h3>
           <p class="record-hint">目标缺口 {{ plan.daily_deficit_target }} kcal</p>
+          <p v-if="presetsLoading || dailyLogLoading" class="section-loading-text">当日记录加载中...</p>
 
           <section class="record-section">
             <div class="record-stats">
@@ -1210,7 +1252,7 @@ onMounted(async () => {
               <label>更新体重 (kg)</label>
               <div class="weight-row">
                 <input v-model.number="selectedDateWeight" type="number" min="20" max="300" step="0.1" />
-                <button type="button" class="sub-btn" :disabled="saving" @click="saveWeight">保存体重</button>
+                <button type="button" class="sub-btn" :disabled="saving || dailyLogLoading" @click="saveWeight">保存体重</button>
               </div>
             </div>
 
@@ -1221,7 +1263,7 @@ onMounted(async () => {
             </div>
           </section>
 
-          <button type="button" class="save-btn" :disabled="saving || loading" @click="saveDailyLog">
+          <button type="button" class="save-btn" :disabled="saving || loading || dailyLogLoading || presetsLoading" @click="saveDailyLog">
             {{ saving ? "保存中..." : "保存当日记录" }}
           </button>
 
@@ -1255,7 +1297,8 @@ onMounted(async () => {
         </button>
       </div>
 
-      <div v-if="trendChart.points.length > 0" class="trend-chart-shell">
+      <p v-if="trendLoading && trendChart.points.length === 0" class="trend-empty">趋势加载中...</p>
+      <div v-else-if="trendChart.points.length > 0" class="trend-chart-shell">
         <svg
           class="trend-chart-svg"
           :viewBox="`0 0 ${trendChart.width} ${trendChart.height}`"
@@ -1389,6 +1432,12 @@ onMounted(async () => {
 .loading-card .muted {
   margin: 0;
   color: #94a3b8;
+}
+
+.section-loading-text {
+  margin: 0 0 8px;
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .wizard-card {

@@ -1,3 +1,5 @@
+import { recordApiMetric } from "./perf";
+
 const API_BASE = "/api";
 const TOKEN_KEY = "mhealth_token";
 
@@ -14,6 +16,11 @@ export function clearToken() {
 }
 
 export async function apiRequest(path, options = {}) {
+  const method = String(options.method ?? "GET").toUpperCase();
+  const startedAt =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers ?? {})
@@ -23,21 +30,42 @@ export async function apiRequest(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers
-  });
-
+  let response = null;
   let payload = null;
+  let requestError = null;
   try {
-    payload = await response.json();
-  } catch (_error) {
-    payload = null;
-  }
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers
+    });
 
-  if (!response.ok) {
-    const message = payload?.error ?? "请求失败";
-    throw new Error(message);
+    try {
+      payload = await response.json();
+    } catch (_error) {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      const message = payload?.error ?? "请求失败";
+      throw new Error(message);
+    }
+    return payload;
+  } catch (error) {
+    requestError = error;
+    throw error;
+  } finally {
+    const endedAt =
+      typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    recordApiMetric({
+      method,
+      path,
+      duration_ms: endedAt - startedAt,
+      status: response?.status ?? 0,
+      ok: Boolean(response?.ok) && !requestError,
+      error: requestError?.message ?? "",
+      at: new Date().toISOString()
+    });
   }
-  return payload;
 }
