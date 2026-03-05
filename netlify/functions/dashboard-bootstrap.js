@@ -34,11 +34,19 @@ function utcDateFromKey(dateKey) {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-function monthRange(year, month, planStartDate) {
+function monthRange(year, month, planStartDate, todayDate) {
   const first = new Date(Date.UTC(year, month - 1, 1));
   const last = new Date(Date.UTC(year, month, 0));
-  const today = new Date();
-  const todayUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const fallbackNow = new Date();
+  const todayUtc =
+    utcDateFromKey(todayDate) ??
+    new Date(
+      Date.UTC(
+        fallbackNow.getUTCFullYear(),
+        fallbackNow.getUTCMonth(),
+        fallbackNow.getUTCDate()
+      )
+    );
   const cappedLast = last.getTime() > todayUtc.getTime() ? todayUtc : last;
   const planStartUtc = utcDateFromKey(planStartDate);
   const start = planStartUtc && planStartUtc.getTime() > first.getTime() ? planStartUtc : first;
@@ -95,10 +103,10 @@ async function buildPlanSummary(plan) {
 }
 
 async function buildCalendar(plan, selectedDate, timeZone) {
+  const { todayDate, weekStartDate } = getTimeContext(timeZone);
   const year = Number(selectedDate.slice(0, 4));
   const month = Number(selectedDate.slice(5, 7));
-  const range = monthRange(year, month, toDateKey(plan.start_date));
-  const { todayDate, weekStartDate } = getTimeContext(timeZone);
+  const range = monthRange(year, month, toDateKey(plan.start_date), todayDate);
 
   const monthLogsPromise =
     range.totalDays > 0

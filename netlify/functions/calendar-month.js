@@ -22,11 +22,19 @@ function utcDateFromKey(dateKey) {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-function monthRange(year, month, planStartDate) {
+function monthRange(year, month, planStartDate, todayDate) {
   const first = new Date(Date.UTC(year, month - 1, 1));
   const last = new Date(Date.UTC(year, month, 0));
-  const today = new Date();
-  const todayUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const fallbackNow = new Date();
+  const todayUtc =
+    utcDateFromKey(todayDate) ??
+    new Date(
+      Date.UTC(
+        fallbackNow.getUTCFullYear(),
+        fallbackNow.getUTCMonth(),
+        fallbackNow.getUTCDate()
+      )
+    );
   const cappedLast = last.getTime() > todayUtc.getTime() ? todayUtc : last;
   const planStartUtc = utcDateFromKey(planStartDate);
   const start =
@@ -81,7 +89,9 @@ export async function handler(event) {
     if (!plan) {
       return badRequest("计划不存在或无访问权限");
     }
-    const range = monthRange(year, month, toDateKey(plan.start_date));
+    const timeZone = normalizeUserTimeZone(auth.user.time_zone);
+    const { todayDate, weekStartDate } = getTimeContext(timeZone);
+    const range = monthRange(year, month, toDateKey(plan.start_date), todayDate);
     const monthLogsPromise =
       range.totalDays > 0
         ? query(
@@ -94,8 +104,6 @@ export async function handler(event) {
             [planId, range.start, range.end]
           )
         : Promise.resolve({ rows: [] });
-    const timeZone = normalizeUserTimeZone(auth.user.time_zone);
-    const { todayDate, weekStartDate } = getTimeContext(timeZone);
     const fullStatusMapPromise = getStatusMapByPlan(planId, shiftDateKey(todayDate, -365), todayDate);
     const [monthLogs, fullStatusMap] = await Promise.all([monthLogsPromise, fullStatusMapPromise]);
 

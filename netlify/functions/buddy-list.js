@@ -50,7 +50,7 @@ export async function handler(event) {
           recent_interaction_date: "",
           estimated_finish_date: "",
           has_active_plan: false,
-          reminder_today_unlogged: true
+          reminder_today_unlogged: false
         }))
       });
     }
@@ -125,4 +125,3 @@ export async function handler(event) {
     return serverError(error.message);
   }
 }
-
