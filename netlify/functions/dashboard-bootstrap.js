@@ -3,6 +3,14 @@ import { query } from "./_lib/db.js";
 import { getActivePlanByUser, getLatestWeight } from "./_lib/domain.js";
 import { estimateFinishDate, filterWeightOutliers } from "./_lib/forecast.js";
 import { EXERCISE_PRESETS, FOOD_PRESETS } from "./_lib/presets.js";
+import {
+  computeCurrentStreak,
+  computeWeekSuccessRate,
+  getStatusMapByPlan,
+  getTimeContext,
+  normalizeUserTimeZone
+} from "./_lib/buddy.js";
+import { shiftDateKey } from "./_lib/date.js";
 import { badRequest, ok, serverError } from "./_lib/response.js";
 
 function validateDate(value) {
@@ -17,14 +25,6 @@ function toDateKey(value) {
   }
   const matched = String(value).match(/\d{4}-\d{2}-\d{2}/);
   return matched ? matched[0] : String(value).slice(0, 10);
-}
-
-function todayDateKey() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 function utcDateFromKey(dateKey) {
@@ -58,19 +58,6 @@ function monthRange(year, month, planStartDate) {
     endDay: cappedLast.getUTCDate(),
     totalDays: cappedLast.getUTCDate() - start.getUTCDate() + 1
   };
-}
-
-function computeCurrentStreak(dayRows) {
-  let streak = 0;
-  const sorted = [...dayRows].sort((a, b) => toDateKey(a.log_date).localeCompare(toDateKey(b.log_date)));
-  for (let i = sorted.length - 1; i >= 0; i -= 1) {
-    if (sorted[i].status === "green") {
-      streak += 1;
-      continue;
-    }
-    break;
-  }
-  return streak;
 }
 
 function parseIncludePresets(rawValue) {
@@ -107,10 +94,11 @@ async function buildPlanSummary(plan) {
   };
 }
 
-async function buildCalendar(plan, selectedDate) {
+async function buildCalendar(plan, selectedDate, timeZone) {
   const year = Number(selectedDate.slice(0, 4));
   const month = Number(selectedDate.slice(5, 7));
   const range = monthRange(year, month, toDateKey(plan.start_date));
+  const { todayDate, weekStartDate } = getTimeContext(timeZone);
 
   const monthLogsPromise =
     range.totalDays > 0
@@ -124,18 +112,8 @@ async function buildCalendar(plan, selectedDate) {
           [plan.id, range.start, range.end]
         )
       : Promise.resolve({ rows: [] });
-  const weekStatsPromise = query(
-    `
-      SELECT
-        COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE status = 'green')::int AS green
-      FROM daily_logs
-      WHERE plan_id = $1
-        AND log_date >= (CURRENT_DATE - INTERVAL '6 days')::date
-    `,
-    [plan.id]
-  );
-  const [monthLogs, weekStats] = await Promise.all([monthLogsPromise, weekStatsPromise]);
+  const fullStatusMapPromise = getStatusMapByPlan(plan.id, shiftDateKey(todayDate, -365), todayDate);
+  const [monthLogs, fullStatusMap] = await Promise.all([monthLogsPromise, fullStatusMapPromise]);
 
   const statusByDate = {};
   const deficitByDate = {};
@@ -157,13 +135,10 @@ async function buildCalendar(plan, selectedDate) {
     });
   }
 
-  const total = Number(weekStats.rows[0]?.total ?? 0);
-  const green = Number(weekStats.rows[0]?.green ?? 0);
-
   return {
     days,
-    current_streak: computeCurrentStreak(monthLogs.rows),
-    week_success_rate: total === 0 ? 0 : Math.round((green / total) * 100)
+    current_streak: computeCurrentStreak(fullStatusMap, todayDate),
+    week_success_rate: computeWeekSuccessRate(fullStatusMap, weekStartDate, todayDate)
   };
 }
 
@@ -383,8 +358,10 @@ export async function handler(event) {
     const auth = await requireAuth(event);
     if (auth.error) return auth.error;
 
-    const selectedDateInput = String(event.queryStringParameters?.selected_date ?? todayDateKey());
-    const endDateInput = String(event.queryStringParameters?.end_date ?? todayDateKey());
+    const timeZone = normalizeUserTimeZone(auth.user.time_zone);
+    const { todayDate } = getTimeContext(timeZone);
+    const selectedDateInput = String(event.queryStringParameters?.selected_date ?? todayDate);
+    const endDateInput = String(event.queryStringParameters?.end_date ?? todayDate);
     const includePresets = parseIncludePresets(event.queryStringParameters?.include_presets);
 
     if (!validateDate(selectedDateInput)) {
@@ -398,7 +375,8 @@ export async function handler(event) {
       profile: {
         user_id: auth.user.user_id,
         account_id: auth.user.account_id,
-        nickname: auth.user.nickname
+        nickname: auth.user.nickname,
+        time_zone: timeZone
       },
       presets: includePresets
         ? {
@@ -420,7 +398,7 @@ export async function handler(event) {
 
     const [planSummary, calendar, forecast, dailyLog, trend] = await Promise.all([
       buildPlanSummary(plan),
-      buildCalendar(plan, selectedDateInput),
+      buildCalendar(plan, selectedDateInput, timeZone),
       buildForecast(plan),
       buildDailyLog(plan, selectedDateInput),
       buildTrend(plan, endDateInput)

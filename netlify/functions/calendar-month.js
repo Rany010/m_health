@@ -1,6 +1,14 @@
 import { requireAuth } from "./_lib/auth.js";
 import { query } from "./_lib/db.js";
 import { getPlanByIdAndUser } from "./_lib/domain.js";
+import {
+  computeCurrentStreak,
+  computeWeekSuccessRate,
+  getStatusMapByPlan,
+  getTimeContext,
+  normalizeUserTimeZone
+} from "./_lib/buddy.js";
+import { shiftDateKey } from "./_lib/date.js";
 import { badRequest, ok, serverError } from "./_lib/response.js";
 
 function utcDateFromKey(dateKey) {
@@ -54,19 +62,6 @@ function toDateKey(value) {
   return matched ? matched[0] : raw.slice(0, 10);
 }
 
-function computeCurrentStreak(dayRows) {
-  let streak = 0;
-  const sorted = [...dayRows].sort((a, b) => toDateKey(a.log_date).localeCompare(toDateKey(b.log_date)));
-  for (let i = sorted.length - 1; i >= 0; i -= 1) {
-    if (sorted[i].status === "green") {
-      streak += 1;
-      continue;
-    }
-    break;
-  }
-  return streak;
-}
-
 export async function handler(event) {
   if (event.httpMethod !== "GET") {
     return badRequest("不支持的请求方法");
@@ -99,18 +94,10 @@ export async function handler(event) {
             [planId, range.start, range.end]
           )
         : Promise.resolve({ rows: [] });
-    const weekStatsPromise = query(
-      `
-        SELECT
-          COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE status = 'green')::int AS green
-        FROM daily_logs
-        WHERE plan_id = $1
-          AND log_date >= (CURRENT_DATE - INTERVAL '6 days')::date
-      `,
-      [planId]
-    );
-    const [monthLogs, weekStats] = await Promise.all([monthLogsPromise, weekStatsPromise]);
+    const timeZone = normalizeUserTimeZone(auth.user.time_zone);
+    const { todayDate, weekStartDate } = getTimeContext(timeZone);
+    const fullStatusMapPromise = getStatusMapByPlan(planId, shiftDateKey(todayDate, -365), todayDate);
+    const [monthLogs, fullStatusMap] = await Promise.all([monthLogsPromise, fullStatusMapPromise]);
 
     const statusByDate = {};
     const deficitByDate = {};
@@ -131,14 +118,10 @@ export async function handler(event) {
       });
     }
 
-    const total = Number(weekStats.rows[0]?.total ?? 0);
-    const green = Number(weekStats.rows[0]?.green ?? 0);
-    const successRate = total === 0 ? 0 : Math.round((green / total) * 100);
-
     return ok({
       days,
-      current_streak: computeCurrentStreak(monthLogs.rows),
-      week_success_rate: successRate
+      current_streak: computeCurrentStreak(fullStatusMap, todayDate),
+      week_success_rate: computeWeekSuccessRate(fullStatusMap, weekStartDate, todayDate)
     });
   } catch (error) {
     return serverError(error.message);

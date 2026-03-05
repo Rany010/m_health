@@ -74,7 +74,7 @@ export async function requireAuth(event) {
   const tokenHash = hashToken(rawToken, secret);
   const { rows } = await query(
     `
-      SELECT s.user_id, u.account_id, u.nickname
+      SELECT s.user_id, u.account_id, u.nickname, u.time_zone
       FROM sessions s
       INNER JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = $1

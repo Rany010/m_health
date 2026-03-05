@@ -38,8 +38,13 @@ async function runSchemaMigrations() {
         password_hash TEXT NOT NULL,
         nickname VARCHAR(24),
         sex VARCHAR(10),
+        time_zone VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+    `);
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS time_zone VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai';
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS auth_locks (
@@ -146,10 +151,22 @@ async function runSchemaMigrations() {
       );
     `);
     await client.query(`
+      CREATE TABLE IF NOT EXISTS buddy_follows (
+        id BIGSERIAL PRIMARY KEY,
+        follower_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        buddy_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(follower_user_id, buddy_user_id),
+        CHECK (follower_user_id <> buddy_user_id)
+      );
+    `);
+    await client.query(`
       CREATE INDEX IF NOT EXISTS idx_plans_user_status ON plans (user_id, status);
       CREATE INDEX IF NOT EXISTS idx_daily_logs_plan_date ON daily_logs (plan_id, log_date);
       CREATE INDEX IF NOT EXISTS idx_weight_logs_plan_date ON weight_logs (plan_id, log_date);
       CREATE INDEX IF NOT EXISTS idx_sessions_user_expire ON sessions (user_id, expires_at);
+      CREATE INDEX IF NOT EXISTS idx_buddy_follows_follower_created ON buddy_follows (follower_user_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_buddy_follows_buddy ON buddy_follows (buddy_user_id);
     `);
     await client.query("COMMIT");
   } catch (error) {

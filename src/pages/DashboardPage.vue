@@ -27,6 +27,8 @@ const calendarLoading = ref(false);
 const forecastLoading = ref(false);
 const dailyLogLoading = ref(false);
 const trendLoading = ref(false);
+const buddyLoading = ref(false);
+const buddyCalendarLoading = ref(false);
 const plan = ref(null);
 const forecast = ref(null);
 const presets = ref({ foods: [], exercises: [] });
@@ -34,12 +36,17 @@ const todayDate = localDateString();
 const selectedDate = ref(todayDate);
 const calendarDays = ref([]);
 const trendDays = ref([]);
+const buddyDays = ref([]);
+const buddyList = ref([]);
+const selectedDateBuddy = ref({ date: todayDate, self_status: "gray", buddies: [] });
 const streakDays = ref(0);
 const weekSuccessRate = ref(0);
 const selectedDateWeight = ref(null);
 const currentLog = ref({ foods: [], exercises: [], note: "" });
 const trendTab = ref("weight");
 const creatingPlan = ref(false);
+const addingBuddy = ref(false);
+const buddyAccountInput = ref("");
 const planStep = ref(1);
 const planForm = ref({
   sex: "male",
@@ -245,6 +252,16 @@ const selectedCalendarDay = computed(() => {
   const selected = calendarDays.value.find((day) => day.date === selectedDate.value);
   return selected || null;
 });
+const buddyDayMap = computed(() => {
+  const map = new Map();
+  for (const day of buddyDays.value) {
+    map.set(day.date, day);
+  }
+  return map;
+});
+const buddyReminderList = computed(() =>
+  buddyList.value.filter((item) => item.reminder_today_unlogged).slice(0, 2)
+);
 const continuousFailDays = computed(() => {
   let count = 0;
   for (let i = calendarDays.value.length - 1; i >= 0; i -= 1) {
@@ -423,6 +440,13 @@ function statusClass(status) {
   if (status === "yellow") return "status-yellow";
   if (status === "red") return "status-red";
   return "status-gray";
+}
+
+function statusLabel(status) {
+  if (status === "green") return "达标";
+  if (status === "yellow") return "接近";
+  if (status === "red") return "未达标";
+  return "未记录";
 }
 
 function todayMonthParams() {
@@ -604,11 +628,90 @@ function applyDailyLogPayload(payload) {
 
 function resetPlanPanels() {
   calendarDays.value = [];
+  buddyDays.value = [];
+  buddyList.value = [];
+  selectedDateBuddy.value = { date: selectedDate.value, self_status: "gray", buddies: [] };
   streakDays.value = 0;
   weekSuccessRate.value = 0;
   forecast.value = null;
   trendDays.value = [];
   applyDailyLogPayload(null);
+}
+
+async function loadBuddyList() {
+  buddyLoading.value = true;
+  try {
+    const payload = await apiRequest("/buddy-list", { method: "GET" });
+    buddyList.value = Array.isArray(payload?.buddies) ? payload.buddies : [];
+  } finally {
+    buddyLoading.value = false;
+  }
+}
+
+async function loadBuddyCalendar() {
+  if (!plan.value) {
+    buddyDays.value = [];
+    selectedDateBuddy.value = { date: selectedDate.value, self_status: "gray", buddies: [] };
+    return;
+  }
+  buddyCalendarLoading.value = true;
+  try {
+    const params = todayMonthParams();
+    const query = new URLSearchParams({
+      selected_date: selectedDate.value,
+      year: String(params.year),
+      month: String(params.month)
+    });
+    const payload = await apiRequest(`/buddy-calendar?${query.toString()}`, { method: "GET" });
+    buddyDays.value = Array.isArray(payload?.days) ? payload.days : [];
+    selectedDateBuddy.value =
+      payload?.selected_date ?? { date: selectedDate.value, self_status: "gray", buddies: [] };
+  } finally {
+    buddyCalendarLoading.value = false;
+  }
+}
+
+async function addBuddy() {
+  const accountId = String(buddyAccountInput.value || "").trim();
+  if (!/^\d{6}$/.test(accountId)) {
+    errorText.value = "请输入6位数字账号";
+    return;
+  }
+  addingBuddy.value = true;
+  errorText.value = "";
+  try {
+    await apiRequest("/buddy-follow", {
+      method: "POST",
+      body: JSON.stringify({ account_id: accountId })
+    });
+    buddyAccountInput.value = "";
+    await Promise.all([loadBuddyList(), loadBuddyCalendar()]);
+    successText.value = "搭子添加成功";
+  } catch (error) {
+    errorText.value = error.message;
+  } finally {
+    addingBuddy.value = false;
+  }
+}
+
+async function removeBuddy(accountId) {
+  loading.value = true;
+  errorText.value = "";
+  try {
+    await apiRequest("/buddy-unfollow", {
+      method: "POST",
+      body: JSON.stringify({ account_id: accountId })
+    });
+    await Promise.all([loadBuddyList(), loadBuddyCalendar()]);
+  } catch (error) {
+    errorText.value = error.message;
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function openBuddyOverview(accountId) {
+  await router.push(`/buddy/${accountId}`);
 }
 
 async function loadDashboardBootstrap({ includePresets = false } = {}) {
@@ -639,6 +742,7 @@ async function loadDashboardBootstrap({ includePresets = false } = {}) {
 
     if (!plan.value) {
       resetPlanPanels();
+      await loadBuddyList();
       return;
     }
 
@@ -648,6 +752,7 @@ async function loadDashboardBootstrap({ includePresets = false } = {}) {
     forecast.value = payload.forecast ?? null;
     trendDays.value = Array.isArray(payload.trend?.days) ? payload.trend.days : [];
     applyDailyLogPayload(payload.dailyLog ?? null);
+    await Promise.all([loadBuddyList(), loadBuddyCalendar()]);
   } finally {
     calendarLoading.value = false;
     forecastLoading.value = false;
@@ -861,7 +966,7 @@ watch(
       return;
     }
     if (!plan.value) return;
-    await Promise.all([loadCalendar(), loadDailyLog()]);
+    await Promise.all([loadCalendar(), loadDailyLog(), loadBuddyCalendar()]);
   },
   { immediate: false }
 );
@@ -1128,6 +1233,39 @@ onMounted(async () => {
       </article>
     </section>
 
+    <section v-if="!initializing" class="buddy-card">
+      <div class="buddy-head">
+        <h3>我的搭子</h3>
+        <small v-if="buddyLoading">加载中...</small>
+      </div>
+      <div class="buddy-add-row">
+        <input
+          v-model="buddyAccountInput"
+          type="text"
+          maxlength="6"
+          placeholder="输入6位账号"
+          :disabled="addingBuddy"
+        />
+        <button type="button" class="sub-btn" :disabled="addingBuddy" @click="addBuddy">
+          {{ addingBuddy ? "添加中..." : "+ 添加搭子" }}
+        </button>
+      </div>
+      <p v-if="buddyList.length === 0" class="muted-line">暂无搭子，添加后可看到彼此执行状态。</p>
+      <div v-else class="buddy-list">
+        <article v-for="buddy in buddyList" :key="buddy.account_id" class="buddy-item">
+          <button type="button" class="buddy-open-btn" @click="openBuddyOverview(buddy.account_id)">
+            <p class="buddy-name">{{ buddy.nickname || buddy.account_id }}</p>
+            <p class="buddy-meta">streak 🔥 {{ buddy.current_streak }}</p>
+            <p class="buddy-meta">本周达标率 {{ buddy.week_success_rate }}%</p>
+          </button>
+          <button type="button" class="danger-btn" @click="removeBuddy(buddy.account_id)">删</button>
+        </article>
+      </div>
+      <p v-if="buddyReminderList.length > 0" class="buddy-reminder">
+        {{ buddyReminderList.map((b) => b.nickname || b.account_id).join("、") }} 今天还没打卡
+      </p>
+    </section>
+
     <section v-if="!initializing && plan" class="calendar-layout">
       <div class="calendar-main">
         <div class="calendar-head">
@@ -1161,6 +1299,15 @@ onMounted(async () => {
           >
             <span class="day-number">{{ dayNumberLabel(day.date) }}</span>
             <span v-if="day.status !== 'gray'" class="day-deficit">{{ deficitChangeLabel(day.deficit) }}</span>
+            <div class="buddy-dots">
+              <span class="dot self-dot" :class="`dot-${day.status}`"></span>
+              <template v-for="dot in (buddyDayMap.get(day.date)?.dots || [])" :key="`${day.date}-${dot.account_id}`">
+                <span class="dot mini-dot" :class="`dot-${dot.status}`"></span>
+              </template>
+              <span v-if="(buddyDayMap.get(day.date)?.more_count || 0) > 0" class="dot-more">
+                +{{ buddyDayMap.get(day.date).more_count }}
+              </span>
+            </div>
           </button>
         </div>
       </div>
@@ -1181,6 +1328,18 @@ onMounted(async () => {
                 <small>运动消耗</small>
                 <strong>-{{ exerciseTotal }} kcal</strong>
               </div>
+            </div>
+          </section>
+
+          <section class="record-section">
+            <div class="section-head">
+              <h4>当日搭子状态</h4>
+              <small v-if="buddyCalendarLoading">同步中...</small>
+            </div>
+            <p>你的执行：{{ statusLabel(selectedDateBuddy.self_status) }}</p>
+            <div v-for="item in selectedDateBuddy.buddies" :key="`selected-buddy-${item.account_id}`" class="buddy-day-item">
+              <span>{{ item.nickname || item.account_id }}</span>
+              <span :class="['status-chip', statusClass(item.status)]">{{ statusLabel(item.status) }}</span>
             </div>
           </section>
 
@@ -1815,6 +1974,82 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 
+.buddy-card {
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  padding: 12px;
+}
+
+.buddy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.buddy-head h3 {
+  margin: 0;
+  color: #e2e8f0;
+}
+
+.buddy-add-row {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 160px auto;
+  gap: 8px;
+}
+
+.buddy-add-row input {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+}
+
+.buddy-list {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.buddy-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.buddy-open-btn {
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  padding: 0;
+  flex: 1;
+}
+
+.buddy-name {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.buddy-meta {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.buddy-reminder {
+  margin: 8px 0 0;
+  color: #fcd34d;
+  font-size: 12px;
+}
+
 .metric-card {
   background: #0f172a;
   border: 1px solid rgba(148, 163, 184, 0.24);
@@ -1983,6 +2218,48 @@ onMounted(async () => {
   flex-direction: column;
   justify-content: space-between;
   cursor: pointer;
+}
+
+.buddy-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dot {
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.self-dot {
+  width: 10px;
+  height: 10px;
+}
+
+.mini-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.dot-more {
+  color: #cbd5e1;
+  font-size: 10px;
+}
+
+.dot-green {
+  background: #4ade80;
+}
+
+.dot-yellow {
+  background: #facc15;
+}
+
+.dot-red {
+  background: #f87171;
+}
+
+.dot-gray {
+  background: #94a3b8;
 }
 
 .calendar-cell.selected {
@@ -2386,6 +2663,19 @@ onMounted(async () => {
   font-size: 11px;
 }
 
+.buddy-day-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.status-chip {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
 .tip-card,
 .warn-card {
   border-radius: 12px;
@@ -2423,6 +2713,7 @@ onMounted(async () => {
   .wizard-grid-three,
   .activity-grid,
   .kpi-grid,
+  .buddy-list,
   .predict-box,
   .calendar-top-metrics,
   .calendar-layout,
