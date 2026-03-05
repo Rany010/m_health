@@ -13,6 +13,7 @@ export const FOOD_PRESETS = [
   { food_name: "苹果", kcal_per_100g: 53 },
   { food_name: "香蕉", kcal_per_100g: 93 },
   { food_name: "番茄", kcal_per_100g: 18 },
+  { food_name: "红薯", kcal_per_100g: 86, unit: "g" },
   { food_name: "麦当劳1+1", unit: "份", kcal_per_unit: 586 },
   { food_name: "蔬菜沙拉", kcal_per_100g: 30, unit: "g" },
   { food_name: "美式", kcal_per_100g: 2 }
