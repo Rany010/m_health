@@ -1329,7 +1329,13 @@ onMounted(async () => {
           >
             <span class="day-number">{{ dayNumberLabel(day.date) }}</span>
             <span v-if="day.status !== 'gray'" class="day-deficit">{{ deficitChangeLabel(day.deficit) }}</span>
-            <div class="buddy-dots">
+            <div
+              v-if="
+                (buddyDayMap.get(day.date)?.dots?.length || 0) > 0 ||
+                (buddyDayMap.get(day.date)?.more_count || 0) > 0
+              "
+              class="buddy-dots"
+            >
               <span class="dot self-dot" :class="`dot-${day.status}`"></span>
               <template v-for="dot in (buddyDayMap.get(day.date)?.dots || [])" :key="`${day.date}-${dot.account_id}`">
                 <span class="dot mini-dot" :class="`dot-${dot.status}`"></span>
