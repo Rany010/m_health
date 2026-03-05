@@ -29,6 +29,7 @@ const dailyLogLoading = ref(false);
 const trendLoading = ref(false);
 const buddyLoading = ref(false);
 const buddyCalendarLoading = ref(false);
+const buddyCalendarReqSeq = ref(0);
 const plan = ref(null);
 const forecast = ref(null);
 const presets = ref({ foods: [], exercises: [] });
@@ -649,6 +650,8 @@ async function loadBuddyList() {
 }
 
 async function loadBuddyCalendar() {
+  const requestId = buddyCalendarReqSeq.value + 1;
+  buddyCalendarReqSeq.value = requestId;
   if (!plan.value) {
     buddyDays.value = [];
     selectedDateBuddy.value = { date: selectedDate.value, self_status: "gray", buddies: [] };
@@ -663,12 +666,38 @@ async function loadBuddyCalendar() {
       month: String(params.month)
     });
     const payload = await apiRequest(`/buddy-calendar?${query.toString()}`, { method: "GET" });
+    if (requestId !== buddyCalendarReqSeq.value) {
+      return;
+    }
     buddyDays.value = Array.isArray(payload?.days) ? payload.days : [];
     selectedDateBuddy.value =
       payload?.selected_date ?? { date: selectedDate.value, self_status: "gray", buddies: [] };
   } finally {
-    buddyCalendarLoading.value = false;
+    if (requestId === buddyCalendarReqSeq.value) {
+      buddyCalendarLoading.value = false;
+    }
   }
+}
+
+function removeBuddyFromCalendarState(accountId) {
+  const target = String(accountId ?? "");
+  if (!target) return;
+  buddyDays.value = buddyDays.value.map((day) => {
+    const dots = Array.isArray(day?.dots) ? day.dots : [];
+    const removed = dots.filter((item) => String(item.account_id) !== target);
+    const removedCount = dots.length - removed.length;
+    return {
+      ...day,
+      dots: removed,
+      more_count: Math.max(0, Number(day?.more_count ?? 0) - removedCount)
+    };
+  });
+  selectedDateBuddy.value = {
+    ...selectedDateBuddy.value,
+    buddies: (selectedDateBuddy.value?.buddies ?? []).filter(
+      (item) => String(item.account_id) !== target
+    )
+  };
 }
 
 async function addBuddy() {
@@ -702,6 +731,7 @@ async function removeBuddy(accountId) {
       method: "POST",
       body: JSON.stringify({ account_id: accountId })
     });
+    removeBuddyFromCalendarState(accountId);
     await Promise.all([loadBuddyList(), loadBuddyCalendar()]);
   } catch (error) {
     errorText.value = error.message;
