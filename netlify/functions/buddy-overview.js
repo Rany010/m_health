@@ -15,24 +15,11 @@ import { estimateFinishDate } from "./_lib/forecast.js";
 import { badRequest, ok, serverError } from "./_lib/response.js";
 import { normalizeAccountId } from "./_lib/security.js";
 
-function monthRange(year, month, planStartDate, todayDate) {
-  const first = new Date(Date.UTC(year, month - 1, 1));
-  const last = new Date(Date.UTC(year, month, 0));
-  const [ty, tm, td] = todayDate.split("-").map((item) => Number(item));
-  const todayUtc = new Date(Date.UTC(ty, tm - 1, td));
-  const cappedLast = last.getTime() > todayUtc.getTime() ? todayUtc : last;
-  const [sy, sm, sd] = String(planStartDate).split("-").map((item) => Number(item));
-  const startCandidate = new Date(Date.UTC(sy, sm - 1, sd));
-  const start = startCandidate.getTime() > first.getTime() ? startCandidate : first;
-  if (start.getTime() > cappedLast.getTime()) {
-    return { start: "", end: "", startDay: 0, endDay: -1 };
-  }
-  return {
-    start: toDateKey(start),
-    end: toDateKey(cappedLast),
-    startDay: start.getUTCDate(),
-    endDay: cappedLast.getUTCDate()
-  };
+function clampDateKey(dateKey, minDate, maxDate) {
+  if (!validateDateKey(dateKey)) return maxDate;
+  if (validateDateKey(minDate) && dateKey < minDate) return minDate;
+  if (validateDateKey(maxDate) && dateKey > maxDate) return maxDate;
+  return dateKey;
 }
 
 export async function handler(event) {
@@ -70,7 +57,6 @@ export async function handler(event) {
 
     const timeZone = normalizeUserTimeZone(auth.user.time_zone);
     const { todayDate, weekStartDate } = getTimeContext(timeZone);
-    const dateForView = selectedDate || todayDate;
 
     const [viewerPlan, buddyPlan] = await Promise.all([
       getActivePlanByUser(auth.user.user_id),
@@ -88,44 +74,36 @@ export async function handler(event) {
           common_streak: 0,
           estimated_finish_date: ""
         },
-        trend: { days: [] },
-        calendar: { days: [] },
+        calendar: {
+          start_date: "",
+          end_date: "",
+          days: []
+        },
         selected_date: {
-          date: dateForView,
+          date: todayDate,
           self_status: "gray",
           buddy_status: "gray"
         }
       });
     }
 
+    const buddyPlanStartDate = toDateKey(buddyPlan.start_date);
+    const viewerPlanStartDate = toDateKey(viewerPlan.start_date);
+    const dateForView = clampDateKey(selectedDate || todayDate, buddyPlanStartDate, todayDate);
     const lookbackStart = shiftDateKey(todayDate, -365);
-    const trendStart = shiftDateKey(todayDate, -13);
     const [selfStatusMap, buddyStatusMap] = await Promise.all([
-      getStatusMapByPlan(viewerPlan.id, lookbackStart, todayDate),
-      getStatusMapByPlan(buddyPlan.id, lookbackStart, todayDate)
+      getStatusMapByPlan(viewerPlan.id, viewerPlanStartDate || lookbackStart, todayDate),
+      getStatusMapByPlan(buddyPlan.id, buddyPlanStartDate || lookbackStart, todayDate)
     ]);
 
-    const trendDays = [];
-    for (let cursor = trendStart; cursor <= todayDate; cursor = shiftDateKey(cursor, 1)) {
-      trendDays.push({
-        date: cursor,
-        status: getStatusByDate(buddyStatusMap, cursor)
-      });
-    }
-
-    const year = Number(dateForView.slice(0, 4));
-    const month = Number(dateForView.slice(5, 7));
-    const range = monthRange(year, month, toDateKey(buddyPlan.start_date), todayDate);
-    const monthStatusMap = range.start
-      ? await getStatusMapByPlan(buddyPlan.id, range.start, range.end)
-      : new Map();
-    const monthDays = [];
-    for (let day = range.startDay; day <= range.endDay; day += 1) {
-      const dateKey = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      monthDays.push({
-        date: dateKey,
-        status: getStatusByDate(monthStatusMap, dateKey)
-      });
+    const calendarDays = [];
+    if (validateDateKey(buddyPlanStartDate) && buddyPlanStartDate <= todayDate) {
+      for (let cursor = buddyPlanStartDate; cursor <= todayDate; cursor = shiftDateKey(cursor, 1)) {
+        calendarDays.push({
+          date: cursor,
+          status: getStatusByDate(buddyStatusMap, cursor)
+        });
+      }
     }
 
     let estimatedFinishDate = "";
@@ -164,11 +142,10 @@ export async function handler(event) {
         common_streak: computeCommonStreak(selfStatusMap, buddyStatusMap, todayDate),
         estimated_finish_date: estimatedFinishDate
       },
-      trend: {
-        days: trendDays
-      },
       calendar: {
-        days: monthDays
+        start_date: buddyPlanStartDate,
+        end_date: todayDate,
+        days: calendarDays
       },
       selected_date: {
         date: dateForView,

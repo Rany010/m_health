@@ -5,6 +5,7 @@ import {
   getTodayDateKeyByTimeZone,
   getWeekStartDateKey,
   shiftDateKey,
+  toDateKey,
   validateDateKey
 } from "./date.js";
 
@@ -43,7 +44,7 @@ export async function getStatusMapByPlan(planId, startDate, endDate) {
   );
   const map = new Map();
   for (const row of rows) {
-    map.set(String(row.log_date).slice(0, 10), String(row.status ?? "gray"));
+    map.set(toDateKey(row.log_date), String(row.status ?? "gray"));
   }
   return map;
 }

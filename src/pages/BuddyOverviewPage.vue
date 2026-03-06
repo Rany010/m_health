@@ -16,19 +16,12 @@ const suppressDateWatchOnce = ref(false);
 const buddyAccountId = computed(() => String(route.params.accountId ?? ""));
 const buddyName = computed(() => payload.value?.buddy?.nickname || payload.value?.buddy?.account_id || "--");
 const metrics = computed(() => payload.value?.metrics ?? null);
-const trendDays = computed(() => payload.value?.trend?.days ?? []);
 const calendarDays = computed(() => payload.value?.calendar?.days ?? []);
+const calendarStartDate = computed(() => payload.value?.calendar?.start_date || "");
+const calendarEndDate = computed(() => payload.value?.calendar?.end_date || "");
 const selectedStatus = computed(() => payload.value?.selected_date ?? null);
 const calendarMonthLabel = computed(() => {
-  const base = String(selectedDate.value || calendarDays.value[0]?.date || "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) {
-    return "当月";
-  }
-  const d = new Date(`${base}T00:00:00`);
-  if (Number.isNaN(d.getTime())) {
-    return `${base.slice(0, 7)} 状态日历`;
-  }
-  return `${d.toLocaleDateString("zh-CN", { year: "numeric", month: "long" })}状态日历`;
+  return "状态日历";
 });
 
 function statusClass(status) {
@@ -57,12 +50,10 @@ async function loadOverview() {
     }
     const data = await apiRequest(`/buddy-overview?${params.toString()}`, { method: "GET" });
     payload.value = data;
-    if (!selectedDate.value) {
-      const nextDate = String(data?.selected_date?.date || "");
-      if (nextDate) {
-        suppressDateWatchOnce.value = true;
-        selectedDate.value = nextDate;
-      }
+    const nextDate = String(data?.selected_date?.date || "");
+    if (nextDate && nextDate !== selectedDate.value) {
+      suppressDateWatchOnce.value = true;
+      selectedDate.value = nextDate;
     }
   } catch (error) {
     errorText.value = error.message;
@@ -148,7 +139,12 @@ onMounted(loadOverview);
         <div class="detail-row">
           <label class="date-filter">
             <span>查看日期</span>
-            <input v-model="selectedDate" type="date" />
+            <input
+              v-model="selectedDate"
+              type="date"
+              :min="calendarStartDate || undefined"
+              :max="calendarEndDate || undefined"
+            />
           </label>
           <div v-if="selectedStatus" class="compare-box">
             <span class="compare-chip" :class="statusClass(selectedStatus.self_status)">
@@ -162,22 +158,6 @@ onMounted(loadOverview);
       </article>
 
       <div class="content-grid">
-        <article class="panel">
-          <div class="panel-head">
-            <h3>最近14天执行</h3>
-            <small>按日状态同步</small>
-          </div>
-          <p v-if="trendDays.length === 0" class="muted-line">暂无趋势数据</p>
-          <div v-else class="trend-list">
-            <div v-for="item in trendDays" :key="item.date" class="trend-item">
-              <span class="trend-date">{{ item.date }}</span>
-              <span class="status-pill" :class="statusClass(item.status)">
-                {{ statusLabel(item.status) }}
-              </span>
-            </div>
-          </div>
-        </article>
-
         <article class="panel">
           <div class="panel-head">
             <h3>{{ calendarMonthLabel }}</h3>
@@ -343,7 +323,7 @@ onMounted(loadOverview);
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -369,37 +349,6 @@ onMounted(loadOverview);
   margin: 0;
   color: #94a3b8;
   font-size: 12px;
-}
-
-.trend-list {
-  display: grid;
-  gap: 8px;
-  max-height: 420px;
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.trend-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.trend-date {
-  font-size: 13px;
-  color: #cbd5e1;
-  font-variant-numeric: tabular-nums;
-}
-
-.status-pill {
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .calendar-grid {
