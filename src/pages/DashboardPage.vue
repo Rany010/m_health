@@ -269,9 +269,6 @@ const buddyCheerUnreadCount = computed(() => Number(buddyCheers.value?.unread_co
 const recentBuddyCheers = computed(() =>
   Array.isArray(buddyCheers.value?.items) ? buddyCheers.value.items.slice(0, 4) : []
 );
-const favoriteFoods = computed(() =>
-  Array.isArray(dailyQuickActions.value?.favorite_foods) ? dailyQuickActions.value.favorite_foods : []
-);
 const favoriteExercises = computed(() =>
   Array.isArray(dailyQuickActions.value?.favorite_exercises)
     ? dailyQuickActions.value.favorite_exercises
@@ -1167,15 +1164,6 @@ function hasFilledLogContent() {
   );
 }
 
-function quickAddFavoriteFood(mealType, favoriteFood) {
-  addFood(mealType, {
-    food_name: favoriteFood.food_name,
-    portion: favoriteFood.unit,
-    weight_g: favoriteFood.weight_g,
-    kcal: favoriteFood.kcal
-  });
-}
-
 function quickAddFavoriteExercise(favoriteExercise) {
   addExercise({
     exercise_type: favoriteExercise.exercise_type,
@@ -1739,7 +1727,7 @@ onMounted(async () => {
             <div class="section-head quick-head">
               <div>
                 <h4>食物记录</h4>
-                <small>常用食物可一键加入，前一天记录可直接复制</small>
+                <small>支持按餐次记录，也可直接复制前一天</small>
               </div>
               <button type="button" class="sub-btn" :disabled="!hasPreviousDayLog" @click="copyPreviousDayLog">
                 {{ hasPreviousDayLog ? `复制 ${previousDayLog?.date}` : '前一天可复制记录为空' }}
@@ -1753,17 +1741,6 @@ onMounted(async () => {
                   建议 {{ mealSuggestedKcal(meal.key) }} kcal，已摄入 {{ mealActualKcal(meal.key) }}kcal
                 </small>
                 <button type="button" class="sub-btn" @click="addFood(meal.key)">+ 添加</button>
-              </div>
-              <div v-if="favoriteFoods.length > 0" class="quick-chip-row">
-                <button
-                  v-for="item in favoriteFoods"
-                  :key="`favorite-food-${meal.key}-${item.food_name}`"
-                  type="button"
-                  class="quick-chip"
-                  @click="quickAddFavoriteFood(meal.key, item)"
-                >
-                  + {{ item.food_name }}
-                </button>
               </div>
               <p v-if="foodsByMeal(meal.key).length === 0" class="meal-empty">暂无记录</p>
               <div
