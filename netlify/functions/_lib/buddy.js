@@ -158,12 +158,20 @@ export async function buildBuddyMetricItem({
     recent_interaction_date: "",
     estimated_finish_date: "",
     has_active_plan: false,
+    has_started_today: false,
+    plan_start_date: "",
     time_zone: normalizeUserTimeZone(timeZone)
   };
   if (!buddyPlan) {
     return fallback;
   }
 
+  const planStartDate = toDateKey(buddyPlan.start_date);
+  const hasStartedToday = validateDateKey(planStartDate) && planStartDate <= todayDate;
+  const effectiveWeekStartDate =
+    hasStartedToday && validateDateKey(weekStartDate) && weekStartDate < planStartDate
+      ? planStartDate
+      : weekStartDate;
   const buddyStatusMap = await getStatusMapByPlan(buddyPlan.id, lookbackStart, todayDate);
   const [recentInteractionDate] = await Promise.all([
     getRecentInteractionDate(viewerPlanId, buddyPlan.id)
@@ -173,10 +181,14 @@ export async function buildBuddyMetricItem({
     ...fallback,
     status_today: getStatusByDate(buddyStatusMap, todayDate),
     current_streak: computeCurrentStreak(buddyStatusMap, todayDate),
-    week_success_rate: computeWeekSuccessRate(buddyStatusMap, weekStartDate, todayDate),
+    week_success_rate: hasStartedToday
+      ? computeWeekSuccessRate(buddyStatusMap, effectiveWeekStartDate, todayDate)
+      : 0,
     common_streak: computeCommonStreak(selfStatusMap, buddyStatusMap, todayDate),
     recent_interaction_date: recentInteractionDate,
-    has_active_plan: true
+    has_active_plan: true,
+    has_started_today: hasStartedToday,
+    plan_start_date: planStartDate
   };
 }
 

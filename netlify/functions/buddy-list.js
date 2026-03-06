@@ -109,7 +109,7 @@ export async function handler(event) {
       buddyItems.push({
         ...metric,
         estimated_finish_date: estimatedFinishDate,
-        reminder_today_unlogged: metric.status_today === "gray"
+        reminder_today_unlogged: metric.has_started_today && metric.status_today === "gray"
       });
     }
 
