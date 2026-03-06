@@ -1,16 +1,12 @@
 import { requireAuth } from "./_lib/auth.js";
+import { computeCurrentStreak, computeWeekSuccessRate, getStatusMapByPlan, getTimeContext, normalizeUserTimeZone } from "./_lib/buddy.js";
+import { listBuddyCheers } from "./_lib/cheer.js";
+import { buildDailyLogPayload } from "./_lib/daily-log.js";
 import { query } from "./_lib/db.js";
 import { getActivePlanByUser, getLatestWeight } from "./_lib/domain.js";
+import { shiftDateKey } from "./_lib/date.js";
 import { estimateFinishDate, filterWeightOutliers } from "./_lib/forecast.js";
 import { EXERCISE_PRESETS, FOOD_PRESETS } from "./_lib/presets.js";
-import {
-  computeCurrentStreak,
-  computeWeekSuccessRate,
-  getStatusMapByPlan,
-  getTimeContext,
-  normalizeUserTimeZone
-} from "./_lib/buddy.js";
-import { shiftDateKey } from "./_lib/date.js";
 import { badRequest, ok, serverError } from "./_lib/response.js";
 
 function validateDate(value) {
@@ -40,13 +36,7 @@ function monthRange(year, month, planStartDate, todayDate) {
   const fallbackNow = new Date();
   const todayUtc =
     utcDateFromKey(todayDate) ??
-    new Date(
-      Date.UTC(
-        fallbackNow.getUTCFullYear(),
-        fallbackNow.getUTCMonth(),
-        fallbackNow.getUTCDate()
-      )
-    );
+    new Date(Date.UTC(fallbackNow.getUTCFullYear(), fallbackNow.getUTCMonth(), fallbackNow.getUTCDate()));
   const cappedLast = last.getTime() > todayUtc.getTime() ? todayUtc : last;
   const planStartUtc = utcDateFromKey(planStartDate);
   const start = planStartUtc && planStartUtc.getTime() > first.getTime() ? planStartUtc : first;
@@ -208,92 +198,6 @@ async function buildForecast(plan) {
   };
 }
 
-async function buildDailyLog(plan, selectedDate) {
-  const weightResult = await query(
-    `
-      SELECT weight
-      FROM weight_logs
-      WHERE plan_id = $1 AND log_date = $2
-      ORDER BY record_time DESC, id DESC
-      LIMIT 1
-    `,
-    [plan.id, selectedDate]
-  );
-
-  let weight = null;
-  let weightSource = "none";
-  if (weightResult.rows.length > 0) {
-    weight = Number(weightResult.rows[0].weight);
-    weightSource = "recorded";
-  } else {
-    const inheritedWeightRes = await query(
-      `
-        SELECT weight
-        FROM weight_logs
-        WHERE plan_id = $1 AND log_date < $2
-        ORDER BY log_date DESC, record_time DESC, id DESC
-        LIMIT 1
-      `,
-      [plan.id, selectedDate]
-    );
-    if (inheritedWeightRes.rows.length > 0) {
-      weight = Number(inheritedWeightRes.rows[0].weight);
-      weightSource = "inherited";
-    } else {
-      weight = Number(plan.start_weight);
-      weightSource = "plan_start";
-    }
-  }
-
-  const dailyLogRes = await query(
-    `
-      SELECT *
-      FROM daily_logs
-      WHERE plan_id = $1 AND log_date = $2
-      LIMIT 1
-    `,
-    [plan.id, selectedDate]
-  );
-  if (dailyLogRes.rows.length === 0) {
-    return {
-      daily_log: null,
-      foods: [],
-      exercises: [],
-      weight,
-      weight_source: weightSource
-    };
-  }
-
-  const dailyLog = dailyLogRes.rows[0];
-  const [foods, exercises] = await Promise.all([
-    query(
-      `
-        SELECT id, meal_type, food_name, portion, weight_g, kcal
-        FROM food_items
-        WHERE daily_log_id = $1
-        ORDER BY id ASC
-      `,
-      [dailyLog.id]
-    ),
-    query(
-      `
-        SELECT id, exercise_type, duration_min, kcal
-        FROM exercise_items
-        WHERE daily_log_id = $1
-      `,
-      [dailyLog.id]
-    )
-  ]);
-
-  return {
-    daily_log: dailyLog,
-    foods: foods.rows,
-    exercises: exercises.rows,
-    weight,
-    weight_source: weightSource
-  };
-}
-
 async function buildTrend(plan, endDate) {
   let startDate = toDateKey(plan.start_date);
   const firstDataDateRes = await query(
@@ -338,7 +242,9 @@ async function buildTrend(plan, endDate) {
         wd.weight,
         dl.intake_kcal,
         dl.exercise_kcal,
-        dl.deficit
+        dl.deficit,
+        dl.status,
+        (dl.id IS NOT NULL) AS has_log
       FROM day_series ds
       LEFT JOIN weight_daily wd ON wd.log_date = ds.log_date
       LEFT JOIN daily_logs dl ON dl.plan_id = $1 AND dl.log_date = ds.log_date
@@ -353,7 +259,9 @@ async function buildTrend(plan, endDate) {
       weight: row.weight === null || row.weight === undefined ? null : Number(row.weight),
       intake_kcal: Number(row.intake_kcal ?? 0),
       exercise_kcal: Number(row.exercise_kcal ?? 0),
-      deficit: Number(row.deficit ?? 0)
+      deficit: Number(row.deficit ?? 0),
+      status: String(row.status ?? "gray"),
+      has_log: Boolean(row.has_log)
     }))
   };
 }
@@ -396,10 +304,15 @@ export async function handler(event) {
       calendar: null,
       forecast: null,
       dailyLog: null,
-      trend: { days: [] }
+      trend: { days: [] },
+      buddy_cheers: { unread_count: 0, items: [] }
     };
 
-    const plan = await getActivePlanByUser(auth.user.user_id);
+    const [plan, buddyCheers] = await Promise.all([
+      getActivePlanByUser(auth.user.user_id),
+      listBuddyCheers(auth.user.user_id)
+    ]);
+    payload.buddy_cheers = buddyCheers;
     if (!plan) {
       return ok(payload);
     }
@@ -408,7 +321,7 @@ export async function handler(event) {
       buildPlanSummary(plan),
       buildCalendar(plan, selectedDateInput, timeZone),
       buildForecast(plan),
-      buildDailyLog(plan, selectedDateInput),
+      buildDailyLogPayload({ plan, date: selectedDateInput, userId: auth.user.user_id }),
       buildTrend(plan, endDateInput)
     ]);
 

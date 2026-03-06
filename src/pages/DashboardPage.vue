@@ -44,6 +44,8 @@ const streakDays = ref(0);
 const weekSuccessRate = ref(0);
 const selectedDateWeight = ref(null);
 const currentLog = ref({ foods: [], exercises: [], note: "" });
+const dailyQuickActions = ref({ favorite_foods: [], favorite_exercises: [], previous_day: null });
+const buddyCheers = ref({ unread_count: 0, items: [] });
 const trendTab = ref("weight");
 const creatingPlan = ref(false);
 const addingBuddy = ref(false);
@@ -263,6 +265,120 @@ const buddyDayMap = computed(() => {
 const buddyReminderList = computed(() =>
   buddyList.value.filter((item) => item.reminder_today_unlogged).slice(0, 2)
 );
+const buddyCheerUnreadCount = computed(() => Number(buddyCheers.value?.unread_count ?? 0));
+const recentBuddyCheers = computed(() =>
+  Array.isArray(buddyCheers.value?.items) ? buddyCheers.value.items.slice(0, 4) : []
+);
+const favoriteFoods = computed(() =>
+  Array.isArray(dailyQuickActions.value?.favorite_foods) ? dailyQuickActions.value.favorite_foods : []
+);
+const favoriteExercises = computed(() =>
+  Array.isArray(dailyQuickActions.value?.favorite_exercises)
+    ? dailyQuickActions.value.favorite_exercises
+    : []
+);
+const previousDayLog = computed(() => dailyQuickActions.value?.previous_day ?? null);
+const hasPreviousDayLog = computed(() => Boolean(previousDayLog.value?.has_data));
+const weeklyReview = computed(() => {
+  if (!plan.value || trendDays.value.length === 0) return null;
+
+  const rows = trendDays.value.filter((item) => String(item?.date || "") <= todayDate);
+  if (rows.length === 0) return null;
+
+  const last7 = rows.slice(-7);
+  const last14 = rows.slice(-14);
+  const last28 = rows.slice(-28);
+  const logged7 = last7.filter((item) => item.has_log);
+  const logged14 = last14.filter((item) => item.has_log);
+  const green7 = last7.filter((item) => item.status === "green").length;
+  const yellow7 = last7.filter((item) => item.status === "yellow").length;
+  const red7 = last7.filter((item) => item.status === "red").length;
+  const gray7 = last7.filter((item) => item.status === "gray").length;
+  const weekSuccessRateValue = last7.length > 0 ? Math.round((green7 / last7.length) * 100) : 0;
+  const avgDeficit7 = logged7.length > 0 ? Math.round(averageNumbers(logged7.map((item) => item.deficit))) : 0;
+  const avgDeficit14 = logged14.length > 0 ? Math.round(averageNumbers(logged14.map((item) => item.deficit))) : 0;
+
+  const weekendRows = last28.filter((item) => item.has_log && isWeekendDate(item.date));
+  const weekdayRows = last28.filter((item) => item.has_log && !isWeekendDate(item.date));
+  const weekendSuccessRate =
+    weekendRows.length > 0
+      ? Math.round((weekendRows.filter((item) => item.status === "green").length / weekendRows.length) * 100)
+      : null;
+  const weekdaySuccessRate =
+    weekdayRows.length > 0
+      ? Math.round((weekdayRows.filter((item) => item.status === "green").length / weekdayRows.length) * 100)
+      : null;
+  const weekendRisk =
+    weekendSuccessRate !== null &&
+    weekdaySuccessRate !== null &&
+    weekendRows.length >= 2 &&
+    weekdayRows.length >= 4 &&
+    weekendSuccessRate + 15 < weekdaySuccessRate;
+
+  const recentWeights = last14.filter((item) => Number.isFinite(Number(item.weight)));
+  let plateauDetected = false;
+  let plateauReason = "最近体重仍在正常波动。";
+  if (recentWeights.length >= 5 && avgDeficit14 >= Math.round(Number(plan.value.daily_deficit_target ?? 0) * 0.8)) {
+    const split = Math.max(2, Math.floor(recentWeights.length / 2));
+    const firstAvg = averageNumbers(recentWeights.slice(0, split).map((item) => item.weight));
+    const secondAvg = averageNumbers(recentWeights.slice(-split).map((item) => item.weight));
+    const delta = Number((secondAvg - firstAvg).toFixed(2));
+    if (Math.abs(delta) <= 0.25) {
+      plateauDetected = true;
+      plateauReason = `近两周平均体重仅波动 ${Math.abs(delta).toFixed(2)}kg，可能进入平台期。`;
+    }
+  }
+
+  const currentTarget = Number(plan.value.daily_deficit_target ?? 0);
+  let suggestionAction = "keep";
+  let suggestedTarget = currentTarget;
+  let suggestionReason = "当前目标和执行节奏基本匹配，先继续观察。";
+  if (logged14.length < 4) {
+    suggestionReason = "最近14天有效记录偏少，先把记录频率提升到每周至少5天。";
+  } else if (avgDeficit14 <= 0) {
+    suggestedTarget = Math.max(300, roundToStep(currentTarget - 150, 50));
+    suggestionAction = suggestedTarget < currentTarget ? "lower" : "keep";
+    suggestionReason = "近14天平均缺口小于等于0，先下调目标缺口，避免目标感过强。";
+  } else if (avgDeficit14 < currentTarget * 0.8) {
+    suggestedTarget = Math.max(300, roundToStep(Math.min(currentTarget - 50, avgDeficit14 + 50), 50));
+    suggestionAction = suggestedTarget < currentTarget ? "lower" : "keep";
+    suggestionReason = "当前执行长期低于计划目标，建议把缺口调到更容易稳定完成的区间。";
+  } else if (avgDeficit14 > currentTarget * 1.15 && weekSuccessRateValue >= 85 && !plateauDetected) {
+    suggestedTarget = Math.min(900, roundToStep(currentTarget + 50, 50));
+    suggestionAction = suggestedTarget > currentTarget ? "raise" : "keep";
+    suggestionReason = "最近执行稳定且明显高于目标，可小幅上调缺口，加快达标。";
+  } else if (plateauDetected) {
+    suggestionReason = "平台期更适合先检查睡眠、盐分和称重时间，而不是立刻继续加大缺口。";
+  }
+
+  const actions = [];
+  if (gray7 >= 2) actions.push("先把记录频率提到每周 5 天以上，复盘和预测才更稳定。");
+  if (weekendRisk) actions.push("周末提前准备低负担餐和固定运动时段，减少临时失守。");
+  if (plateauDetected) actions.push("平台期先连续观察 7 天，尽量固定早晨空腹称重。");
+  if (suggestionAction === "lower") actions.push(`建议把目标缺口先下调到 ${suggestedTarget} kcal，再观察 1 周完成率。`);
+  if (suggestionAction === "raise") actions.push(`如果状态轻松，可把目标缺口上调到 ${suggestedTarget} kcal。`);
+  if (actions.length === 0) actions.push("保持当前节奏，继续累计连续达标天数。");
+
+  return {
+    range_label: `${String(last7[0]?.date ?? todayDate).slice(5)} - ${String(last7[last7.length - 1]?.date ?? todayDate).slice(5)}`,
+    success_rate: weekSuccessRateValue,
+    logged_days: logged7.length,
+    avg_deficit: avgDeficit7,
+    green_days: green7,
+    yellow_days: yellow7,
+    red_days: red7,
+    gray_days: gray7,
+    weekend_success_rate: weekendSuccessRate,
+    weekday_success_rate: weekdaySuccessRate,
+    weekend_risk: weekendRisk,
+    plateau_detected: plateauDetected,
+    plateau_reason: plateauReason,
+    suggestion_action: suggestionAction,
+    suggested_target: suggestedTarget,
+    suggestion_reason: suggestionReason,
+    actions
+  };
+});
 const continuousFailDays = computed(() => {
   let count = 0;
   for (let i = calendarDays.value.length - 1; i >= 0; i -= 1) {
@@ -483,6 +599,41 @@ function toNonNegativeInt(value) {
   return Math.round(n);
 }
 
+function roundToStep(value, step = 50) {
+  const safeStep = Math.max(1, Number(step) || 50);
+  return Math.round(Number(value || 0) / safeStep) * safeStep;
+}
+
+function averageNumbers(values) {
+  if (!Array.isArray(values) || values.length === 0) return 0;
+  return values.reduce((sum, item) => sum + Number(item || 0), 0) / values.length;
+}
+
+function parseLocalDateKey(dateKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey ?? ""))) return null;
+  return new Date(`${dateKey}T00:00:00`);
+}
+
+function isWeekendDate(dateKey) {
+  const date = parseLocalDateKey(dateKey);
+  if (!date || Number.isNaN(date.getTime())) return false;
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+function formatRelativeTime(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "刚刚";
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.max(0, Math.round(diffMs / 60000));
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHour = Math.round(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} 小时前`;
+  const diffDay = Math.round(diffHour / 24);
+  return `${diffDay} 天前`;
+}
+
 function formatTrendAxisValue(value) {
   if (activeTrendTab.value.key === "weight") {
     return `${Number(value).toFixed(1)} kg`;
@@ -544,6 +695,20 @@ function foodInputMax(item) {
   return isUnitBasedFoodPreset(preset) ? 200 : 1000;
 }
 
+function findExercisePreset(exerciseType) {
+  return presets.value.exercises.find((item) => item.exercise_type === exerciseType) ?? null;
+}
+
+function defaultExerciseDuration(preset) {
+  return Math.max(10, Math.round(Number(preset?.default_duration_min ?? 30) || 30));
+}
+
+function computeExerciseKcal(item) {
+  const preset = findExercisePreset(item.exercise_type);
+  if (!preset) return toNonNegativeInt(item.kcal ?? 0);
+  return Math.round(Number(preset.kcal_per_min ?? 0) * toNonNegativeInt(item.duration_min ?? 0));
+}
+
 function foodsByMeal(mealType) {
   return currentLog.value.foods.filter((item) => normalizeMealType(item.meal_type) === mealType);
 }
@@ -558,11 +723,35 @@ function mealActualKcal(mealType) {
   return mealActualKcalMap.value[key] ?? 0;
 }
 
+function syncExerciseAutoKcal(item, { resetDuration = false } = {}) {
+  const preset = findExercisePreset(item.exercise_type);
+  if (!preset) {
+    item.kcal = toNonNegativeInt(item.kcal ?? 0);
+    return;
+  }
+  if (resetDuration || toNonNegativeInt(item.duration_min ?? 0) <= 0) {
+    item.duration_min = defaultExerciseDuration(preset);
+  } else {
+    item.duration_min = toNonNegativeInt(item.duration_min ?? 0);
+  }
+  item.kcal = computeExerciseKcal(item);
+}
+
 function onExerciseTypeChange(item) {
-  item.manual_kcal = true;
-  item.duration_min = 0;
   if (!item.exercise_type) {
+    item.manual_kcal = true;
+    item.duration_min = 0;
     item.kcal = 0;
+    return;
+  }
+  item.manual_kcal = false;
+  syncExerciseAutoKcal(item, { resetDuration: true });
+}
+
+function onExerciseDurationInput(item) {
+  item.duration_min = toNonNegativeInt(item.duration_min ?? 0);
+  if (!item.manual_kcal) {
+    syncExerciseAutoKcal(item);
   }
 }
 
@@ -571,36 +760,54 @@ function onExerciseKcalInput(item) {
   item.kcal = toNonNegativeInt(item.kcal ?? 0);
 }
 
-function newFoodRow(mealType = "breakfast") {
-  const first = presets.value.foods[0];
-  const amount = defaultFoodAmount(first);
+function toggleExerciseMode(item) {
+  if (!item.exercise_type) return;
+  item.manual_kcal = !item.manual_kcal;
+  if (!item.manual_kcal) {
+    syncExerciseAutoKcal(item, { resetDuration: false });
+  }
+}
+
+function newFoodRow(mealType = "breakfast", seed = null) {
+  const preset = seed?.food_name ? findFoodPreset(seed.food_name) : presets.value.foods[0];
+  const amount = toNonNegativeInt(seed?.weight_g ?? defaultFoodAmount(preset));
   return {
     id: null,
     meal_type: normalizeMealType(mealType),
-    food_name: first?.food_name ?? "",
-    portion: first?.unit ?? "1份",
+    food_name: seed?.food_name ?? preset?.food_name ?? "",
+    portion: seed?.portion ?? preset?.unit ?? "1份",
     weight_g: amount,
-    kcal: first
-      ? isUnitBasedFoodPreset(first)
-        ? Math.round(Number(first.kcal_per_unit) * amount)
-        : Math.round((Number(first.kcal_per_100g) * amount) / 100)
-      : 0
+    kcal: preset
+      ? Number.isFinite(Number(preset.kcal_per_unit))
+        ? Math.round(Number(preset.kcal_per_unit) * amount)
+        : Math.round((Number(preset.kcal_per_100g) * amount) / 100)
+      : toNonNegativeInt(seed?.kcal ?? 0)
   };
 }
 
-function newExerciseRow() {
-  return {
+function newExerciseRow(seed = null) {
+  const preset = seed?.exercise_type ? findExercisePreset(seed.exercise_type) : null;
+  const durationMin = toNonNegativeInt(seed?.duration_min ?? defaultExerciseDuration(preset));
+  const manualKcal = Boolean(seed?.manual_kcal ?? !preset);
+  const item = {
     id: null,
-    exercise_type: "",
-    duration_min: 0,
+    exercise_type: seed?.exercise_type ?? preset?.exercise_type ?? "",
+    duration_min: preset || seed?.exercise_type ? durationMin : 0,
     kcal: 0,
-    manual_kcal: true
+    manual_kcal: manualKcal
   };
+  item.kcal = manualKcal ? toNonNegativeInt(seed?.kcal ?? 0) : computeExerciseKcal(item);
+  return item;
 }
 
 function applyDailyLogPayload(payload) {
   selectedDateWeight.value =
     payload?.weight === null || payload?.weight === undefined ? null : Number(payload.weight);
+  dailyQuickActions.value = payload?.quick_actions ?? {
+    favorite_foods: [],
+    favorite_exercises: [],
+    previous_day: null
+  };
   if (!payload?.daily_log) {
     currentLog.value = { foods: [newFoodRow()], exercises: [newExerciseRow()], note: "" };
     return;
@@ -613,13 +820,20 @@ function applyDailyLogPayload(payload) {
     weight_g: toNonNegativeInt(f.weight_g ?? defaultFoodAmount(findFoodPreset(f.food_name))),
     kcal: toNonNegativeInt(f.kcal)
   }));
-  const exercises = payload.exercises.map((e) => ({
-    id: e.id,
-    exercise_type: String(e.exercise_type ?? ""),
-    duration_min: 0,
-    kcal: toNonNegativeInt(e.kcal),
-    manual_kcal: true
-  }));
+  const exercises = payload.exercises.map((e) => {
+    const item = {
+      id: e.id,
+      exercise_type: String(e.exercise_type ?? ""),
+      duration_min: toNonNegativeInt(e.duration_min ?? 0),
+      kcal: toNonNegativeInt(e.kcal),
+      manual_kcal: true
+    };
+    const preset = findExercisePreset(item.exercise_type);
+    if (preset && item.duration_min > 0 && Math.abs(computeExerciseKcal(item) - item.kcal) <= 1) {
+      item.manual_kcal = false;
+    }
+    return item;
+  });
   currentLog.value = {
     foods: foods.length > 0 ? foods : [newFoodRow()],
     exercises: exercises.length > 0 ? exercises : [newExerciseRow()],
@@ -781,6 +995,7 @@ async function loadDashboardBootstrap({ includePresets = false } = {}) {
     weekSuccessRate.value = Number(payload.calendar?.week_success_rate ?? 0);
     forecast.value = payload.forecast ?? null;
     trendDays.value = Array.isArray(payload.trend?.days) ? payload.trend.days : [];
+    buddyCheers.value = payload?.buddy_cheers ?? { unread_count: 0, items: [] };
     applyDailyLogPayload(payload.dailyLog ?? null);
     await Promise.all([loadBuddyList(), loadBuddyCalendar()]);
   } finally {
@@ -894,7 +1109,7 @@ async function saveDailyLog() {
         date: selectedDate.value,
         foods,
         exercises,
-        note: ""
+        note: String(currentLog.value.note ?? "").slice(0, 200)
       })
     });
     successText.value = "当日记录已保存";
@@ -934,12 +1149,69 @@ async function saveWeight() {
   }
 }
 
-function addFood(mealType = "breakfast") {
-  currentLog.value.foods.push(newFoodRow(mealType));
+function addFood(mealType = "breakfast", seed = null) {
+  currentLog.value.foods.push(newFoodRow(mealType, seed));
 }
 
-function addExercise() {
-  currentLog.value.exercises.push(newExerciseRow());
+function addExercise(seed = null) {
+  currentLog.value.exercises.push(newExerciseRow(seed));
+}
+
+function hasFilledLogContent() {
+  return (
+    currentLog.value.foods.some((item) => item.food_name || toNonNegativeInt(item.weight_g ?? 0) > 0) ||
+    currentLog.value.exercises.some(
+      (item) => item.exercise_type || toNonNegativeInt(item.duration_min ?? 0) > 0 || toNonNegativeInt(item.kcal ?? 0) > 0
+    ) ||
+    String(currentLog.value.note ?? "").trim().length > 0
+  );
+}
+
+function quickAddFavoriteFood(mealType, favoriteFood) {
+  addFood(mealType, {
+    food_name: favoriteFood.food_name,
+    portion: favoriteFood.unit,
+    weight_g: favoriteFood.weight_g,
+    kcal: favoriteFood.kcal
+  });
+}
+
+function quickAddFavoriteExercise(favoriteExercise) {
+  addExercise({
+    exercise_type: favoriteExercise.exercise_type,
+    duration_min: favoriteExercise.duration_min,
+    kcal: favoriteExercise.kcal,
+    manual_kcal: false
+  });
+}
+
+function copyPreviousDayLog() {
+  if (!hasPreviousDayLog.value || !previousDayLog.value) {
+    errorText.value = "前一天暂无可复制记录";
+    return;
+  }
+  if (hasFilledLogContent() && typeof window !== "undefined") {
+    const confirmed = window.confirm("复制前一天会覆盖当前未保存内容，是否继续？");
+    if (!confirmed) return;
+  }
+  currentLog.value = {
+    foods: previousDayLog.value.foods.length > 0
+      ? previousDayLog.value.foods.map((item) => newFoodRow(item.meal_type, item))
+      : [newFoodRow()],
+    exercises: previousDayLog.value.exercises.length > 0
+      ? previousDayLog.value.exercises.map((item) => newExerciseRow(item))
+      : [newExerciseRow()],
+    note: String(previousDayLog.value.note ?? "")
+  };
+  successText.value = `已复制 ${previousDayLog.value.date} 的记录`;
+}
+
+async function markBuddyCheersRead(ids = []) {
+  const payload = await apiRequest("/buddy-cheer-mark-read", {
+    method: "POST",
+    body: JSON.stringify({ ids })
+  });
+  buddyCheers.value = payload?.buddy_cheers ?? { unread_count: 0, items: [] };
 }
 
 function removeFood(food) {
@@ -1031,11 +1303,21 @@ onMounted(async () => {
     <section class="dashboard-header">
       <h1 class="title">工作台</h1>
       <div class="header-tools">
+        <button
+          v-if="buddyCheerUnreadCount > 0"
+          type="button"
+          class="cheer-badge-btn"
+          @click="markBuddyCheersRead()"
+        >
+          <span>收到加油</span>
+          <strong>{{ buddyCheerUnreadCount }}</strong>
+        </button>
         <p class="muted header-account">账号：{{ profile?.account_id }}</p>
         <button class="secondary header-logout-btn" type="button" @click="logout">退出登录</button>
       </div>
     </section>
     <p v-if="errorText" class="error header-feedback">{{ errorText }}</p>
+    <p v-if="successText" class="success header-feedback">{{ successText }}</p>
 
     <section v-if="initializing" class="loading-card">
       <p class="muted">正在加载数据...</p>
@@ -1263,6 +1545,80 @@ onMounted(async () => {
       </article>
     </section>
 
+    <section v-if="!initializing && recentBuddyCheers.length > 0" class="cheer-card">
+      <div class="cheer-head">
+        <div>
+          <h3>搭子加油</h3>
+          <p class="cheer-sub">有人注意到你的执行了，继续保持。</p>
+        </div>
+        <button
+          v-if="buddyCheerUnreadCount > 0"
+          type="button"
+          class="sub-btn"
+          @click="markBuddyCheersRead()"
+        >
+          全部知道了
+        </button>
+      </div>
+      <div class="cheer-list">
+        <div v-for="item in recentBuddyCheers" :key="`cheer-${item.id}`" class="cheer-item">
+          <div>
+            <strong>{{ item.sender_nickname || item.sender_account_id }}</strong>
+            <span class="cheer-item-text"> 给你加油了</span>
+          </div>
+          <small>{{ formatRelativeTime(item.created_at) }}</small>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="!initializing && plan && weeklyReview" class="review-card">
+      <div class="review-head">
+        <div>
+          <h3>周复盘</h3>
+          <p class="review-sub">{{ weeklyReview.range_label }}</p>
+        </div>
+        <span class="review-chip">达标率 {{ weeklyReview.success_rate }}%</span>
+      </div>
+      <div class="review-metrics">
+        <div class="metric-card review-metric">
+          <small>有效记录</small>
+          <strong>{{ weeklyReview.logged_days }} / 7 天</strong>
+        </div>
+        <div class="metric-card review-metric">
+          <small>平均缺口</small>
+          <strong>{{ weeklyReview.avg_deficit }} kcal</strong>
+        </div>
+        <div class="metric-card review-metric">
+          <small>周末表现</small>
+          <strong>
+            {{ weeklyReview.weekend_success_rate === null ? "--" : `${weeklyReview.weekend_success_rate}%` }}
+          </strong>
+        </div>
+      </div>
+      <div class="review-body">
+        <p>
+          <strong>平台期识别：</strong>
+          {{ weeklyReview.plateau_reason }}
+        </p>
+        <p v-if="weeklyReview.weekend_risk">
+          <strong>周末失守：</strong>
+          最近周末达标率低于工作日，建议提前准备饮食和运动安排。
+        </p>
+        <p>
+          <strong>目标纠偏：</strong>
+          {{ weeklyReview.suggestion_reason }}
+          <span v-if="weeklyReview.suggestion_action !== 'keep'">
+            建议目标缺口 {{ weeklyReview.suggested_target }} kcal。
+          </span>
+        </p>
+      </div>
+      <div class="review-actions">
+        <span v-for="(item, index) in weeklyReview.actions" :key="`review-action-${index}`" class="review-action-item">
+          {{ item }}
+        </span>
+      </div>
+    </section>
+
     <section v-if="!initializing" class="buddy-card">
       <div class="buddy-head">
         <h3>我的搭子</h3>
@@ -1380,9 +1736,14 @@ onMounted(async () => {
           </section>
 
           <section class="record-section">
-            <div class="section-head">
-              <h4>食物记录</h4>
-              <small>按餐次记录，可分多次补录</small>
+            <div class="section-head quick-head">
+              <div>
+                <h4>食物记录</h4>
+                <small>常用食物可一键加入，前一天记录可直接复制</small>
+              </div>
+              <button type="button" class="sub-btn" :disabled="!hasPreviousDayLog" @click="copyPreviousDayLog">
+                {{ hasPreviousDayLog ? `复制 ${previousDayLog?.date}` : '前一天可复制记录为空' }}
+              </button>
             </div>
 
             <div v-for="meal in mealGroups" :key="meal.key" class="meal-block">
@@ -1392,6 +1753,17 @@ onMounted(async () => {
                   建议 {{ mealSuggestedKcal(meal.key) }} kcal，已摄入 {{ mealActualKcal(meal.key) }}kcal
                 </small>
                 <button type="button" class="sub-btn" @click="addFood(meal.key)">+ 添加</button>
+              </div>
+              <div v-if="favoriteFoods.length > 0" class="quick-chip-row">
+                <button
+                  v-for="item in favoriteFoods"
+                  :key="`favorite-food-${meal.key}-${item.food_name}`"
+                  type="button"
+                  class="quick-chip"
+                  @click="quickAddFavoriteFood(meal.key, item)"
+                >
+                  + {{ item.food_name }}
+                </button>
               </div>
               <p v-if="foodsByMeal(meal.key).length === 0" class="meal-empty">暂无记录</p>
               <div
@@ -1421,7 +1793,18 @@ onMounted(async () => {
           <section class="record-section">
             <div class="section-head">
               <h4>运动记录</h4>
-              <small>默认无运动，可选类型并填写消耗热量</small>
+              <small>选运动类型后按时长自动换算 kcal，也可切回手动</small>
+            </div>
+            <div v-if="favoriteExercises.length > 0" class="quick-chip-row">
+              <button
+                v-for="item in favoriteExercises"
+                :key="`favorite-exercise-${item.exercise_type}`"
+                type="button"
+                class="quick-chip"
+                @click="quickAddFavoriteExercise(item)"
+              >
+                + {{ item.exercise_type }} {{ item.duration_min }}min
+              </button>
             </div>
             <div v-for="(exercise, index) in currentLog.exercises" :key="`exercise-${index}`" class="entry-row exercise-row">
               <select v-model="exercise.exercise_type" @change="onExerciseTypeChange(exercise)">
@@ -1431,15 +1814,45 @@ onMounted(async () => {
                 </option>
               </select>
               <input
+                v-model.number="exercise.duration_min"
+                type="number"
+                min="0"
+                max="240"
+                placeholder="分钟"
+                @input="onExerciseDurationInput(exercise)"
+              />
+              <button
+                type="button"
+                class="mini-mode-btn"
+                :disabled="!exercise.exercise_type"
+                @click="toggleExerciseMode(exercise)"
+              >
+                {{ exercise.manual_kcal ? '手动' : '自动' }}
+              </button>
+              <input
                 v-model.number="exercise.kcal"
                 type="number"
                 min="0"
                 max="2000"
+                :disabled="!exercise.manual_kcal && !!exercise.exercise_type"
                 @input="onExerciseKcalInput(exercise)"
               />
               <button type="button" class="danger-btn" @click="removeExercise(index)">删</button>
             </div>
-            <button type="button" class="sub-btn" @click="addExercise">+ 添加运动</button>
+            <button type="button" class="sub-btn" @click="addExercise()">+ 添加运动</button>
+          </section>
+
+          <section class="record-section note-section">
+            <div class="section-head">
+              <h4>补充备注</h4>
+              <small>记录情绪、聚餐、出差等影响执行的因素</small>
+            </div>
+            <textarea
+              v-model="currentLog.note"
+              rows="3"
+              maxlength="200"
+              placeholder="例如：今天聚餐、睡眠不足、训练状态很好..."
+            ></textarea>
           </section>
 
           <section class="record-section">
@@ -2761,6 +3174,157 @@ onMounted(async () => {
 .warn-card.red {
   border-color: rgba(239, 68, 68, 0.42);
   color: #fca5a5;
+}
+
+.cheer-badge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
+.cheer-card,
+.review-card {
+  background: #0f172a;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.cheer-head,
+.review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cheer-head h3,
+.review-head h3 {
+  margin: 0;
+  color: #e2e8f0;
+}
+
+.cheer-sub,
+.review-sub {
+  margin: 4px 0 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.cheer-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.cheer-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.1);
+  padding: 10px 12px;
+  color: #dbeafe;
+}
+
+.cheer-item small {
+  color: #93c5fd;
+}
+
+.review-chip {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(34, 197, 94, 0.14);
+  color: #86efac;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.review-metrics {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.review-metric {
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.review-body {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.review-body p {
+  margin: 0;
+}
+
+.review-actions {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.review-action-item {
+  border-radius: 10px;
+  border: 1px solid rgba(59, 130, 246, 0.24);
+  background: rgba(30, 41, 59, 0.72);
+  color: #dbeafe;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.quick-head {
+  align-items: flex-start;
+}
+
+.quick-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.quick-chip {
+  border: 1px solid rgba(59, 130, 246, 0.24);
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.75);
+  color: #dbeafe;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.mini-mode-btn {
+  width: auto;
+  min-width: 52px;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 8px;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mini-mode-btn:disabled {
+  opacity: 0.5;
+}
+
+.note-section textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 
 @media (max-width: 900px) {

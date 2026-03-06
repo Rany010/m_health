@@ -87,7 +87,9 @@ export async function handler(event) {
           wd.weight,
           dl.intake_kcal,
           dl.exercise_kcal,
-          dl.deficit
+          dl.deficit,
+          dl.status,
+          (dl.id IS NOT NULL) AS has_log
         FROM day_series ds
         LEFT JOIN weight_daily wd ON wd.log_date = ds.log_date
         LEFT JOIN daily_logs dl ON dl.plan_id = $1 AND dl.log_date = ds.log_date
@@ -101,7 +103,9 @@ export async function handler(event) {
       weight: row.weight === null || row.weight === undefined ? null : Number(row.weight),
       intake_kcal: Number(row.intake_kcal ?? 0),
       exercise_kcal: Number(row.exercise_kcal ?? 0),
-      deficit: Number(row.deficit ?? 0)
+      deficit: Number(row.deficit ?? 0),
+      status: String(row.status ?? "gray"),
+      has_log: Boolean(row.has_log)
     }));
 
     return ok({ days });
