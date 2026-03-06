@@ -2254,6 +2254,11 @@ onMounted(async () => {
   flex-direction: column;
   justify-content: space-between;
   cursor: pointer;
+  position: relative;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
 }
 
 .buddy-dots {
@@ -2299,7 +2304,30 @@ onMounted(async () => {
 }
 
 .calendar-cell.selected {
-  transform: translateY(-1px);
+  transform: translateY(-2px) scale(1.03);
+  z-index: 2;
+  filter: saturate(1.08);
+  box-shadow:
+    0 0 0 2px rgba(226, 232, 240, 0.88),
+    0 10px 24px rgba(37, 99, 235, 0.36);
+  animation: calendar-selected-breathe 2.2s ease-in-out infinite;
+}
+
+@keyframes calendar-selected-breathe {
+  0%,
+  100% {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow:
+      0 0 0 2px rgba(226, 232, 240, 0.88),
+      0 10px 24px rgba(37, 99, 235, 0.32);
+  }
+
+  50% {
+    transform: translateY(-2px) scale(1.035);
+    box-shadow:
+      0 0 0 2px rgba(226, 232, 240, 0.92),
+      0 12px 26px rgba(37, 99, 235, 0.4);
+  }
 }
 
 .status-green {
