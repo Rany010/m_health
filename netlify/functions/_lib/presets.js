@@ -23,6 +23,7 @@ export const EXERCISE_PRESETS = [
   { exercise_type: "快走", kcal_per_min: 4 },
   { exercise_type: "慢跑", kcal_per_min: 8 },
   { exercise_type: "骑行", kcal_per_min: 7 },
+  { exercise_type: "羽毛球", kcal_per_min: 7 },
   { exercise_type: "力量训练", kcal_per_min: 6 },
   { exercise_type: "游泳", kcal_per_min: 9 }
 ];
