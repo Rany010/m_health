@@ -58,15 +58,20 @@ async function submit() {
     window.localStorage.setItem("mhealth_remember_7d", rememberSevenDays.value ? "1" : "0");
     await router.push("/dashboard");
   } catch (error) {
+    const message = String(error?.message || "").trim();
     if (mode.value === "login") {
-      failCount.value += 1;
-      errorText.value = "账号或密码错误，请重试。";
-      if (failCount.value >= 5) {
-        lockUntilTs.value = Date.now() + 15 * 60 * 1000;
-        errorText.value = "账号或密码错误，请稍后再试。";
+      if (message === "账号或密码错误") {
+        failCount.value += 1;
+        errorText.value = "账号或密码错误，请重试。";
+        if (failCount.value >= 5) {
+          lockUntilTs.value = Date.now() + 15 * 60 * 1000;
+          errorText.value = "账号或密码错误，请稍后再试。";
+        }
+      } else {
+        errorText.value = message || "登录失败，请稍后重试。";
       }
     } else {
-      errorText.value = error?.message || "注册失败，请稍后重试。";
+      errorText.value = message || "注册失败，请稍后重试。";
     }
   } finally {
     loading.value = false;

@@ -44,6 +44,14 @@ async function runSchemaMigrations() {
     `);
     await client.query(`
       ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS nickname VARCHAR(24);
+    `);
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS sex VARCHAR(10);
+    `);
+    await client.query(`
+      ALTER TABLE users
       ADD COLUMN IF NOT EXISTS time_zone VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai';
     `);
     await client.query(`
