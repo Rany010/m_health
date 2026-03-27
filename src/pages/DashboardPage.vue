@@ -215,8 +215,8 @@ const canActivatePlan = computed(
 );
 const monthLabel = computed(() => {
   const base = selectedDate.value || todayDate;
-  const d = new Date(`${base}T00:00:00`);
-  if (Number.isNaN(d.getTime())) {
+  const d = parseLocalDateKey(base);
+  if (!d || Number.isNaN(d.getTime())) {
     return base.slice(0, 7);
   }
   return d.toLocaleDateString("zh-CN", { year: "numeric", month: "long" });
@@ -549,6 +549,20 @@ function dayNumberLabel(dateValue) {
   return value.length >= 2 ? value.slice(-2) : value;
 }
 
+function weekdayColumnStart(dateKey) {
+  const date = parseLocalDateKey(dateKey);
+  if (!date || Number.isNaN(date.getTime())) return 1;
+  const day = date.getDay();
+  return day === 0 ? 7 : day;
+}
+
+function calendarCellStyle(dateKey, index) {
+  if (index !== 0) return undefined;
+  return {
+    gridColumn: `${weekdayColumnStart(dateKey)} / span 1`
+  };
+}
+
 function statusClass(status) {
   if (status === "green") return "status-green";
   if (status === "yellow") return "status-yellow";
@@ -564,7 +578,14 @@ function statusLabel(status) {
 }
 
 function todayMonthParams() {
-  const d = new Date(selectedDate.value);
+  const d = parseLocalDateKey(selectedDate.value);
+  if (!d || Number.isNaN(d.getTime())) {
+    const fallback = parseLocalDateKey(todayDate) ?? new Date();
+    return {
+      year: fallback.getFullYear(),
+      month: fallback.getMonth() + 1
+    };
+  }
   return {
     year: d.getFullYear(),
     month: d.getMonth() + 1
@@ -1664,11 +1685,12 @@ onMounted(async () => {
         <p v-if="calendarLoading && calendarDays.length === 0" class="section-loading-text">日历数据加载中...</p>
         <div v-else class="calendar-grid-new">
           <button
-            v-for="day in calendarDays"
+            v-for="(day, index) in calendarDays"
             :key="day.date"
             type="button"
             class="calendar-cell"
             :class="[statusClass(day.status), { selected: day.date === selectedDate }]"
+            :style="calendarCellStyle(day.date, index)"
             @click="selectedDate = day.date"
           >
             <span class="day-number">{{ dayNumberLabel(day.date) }}</span>
